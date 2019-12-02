@@ -7,7 +7,7 @@ from keras.layers.advanced_activations import LeakyReLU
 from keras.layers.convolutional import UpSampling2D, Conv2D
 from keras.backend import clip
 from keras.models import Sequential, Model
-from keras.optimizers import Adam
+from keras.optimizers import Adam, RMSprop
 
 import matplotlib.pyplot as plt
 
@@ -37,7 +37,7 @@ class CGAN():
         self.channels = 1
         self.img_shape = (self.img_rows, self.img_cols, self.channels)
 
-        optimizer = Adam(0.0002, 0.5)
+        optimizer = RMSprop(lr=0.0005)
 
         self.D = self.build_discriminator()
         self.D.compile(loss=['binary_crossentropy'],
@@ -165,13 +165,14 @@ class CGAN():
         x = Dense(32)(x)
         x = LeakyReLU(alpha=0.1)(x)
         x = Dense(16)(x)
-        out = Dense(1)(x)
+        out = Dense(1, activation='sigmoid')(x)
 
         model = Model([image_input, digit_input], out, name='D')
 
         return model
 
-    def train(self, epochs, batch_size=128, sample_interval=100, train_D_interval=1):
+    def train(self, epochs, batch_size=128, sample_interval=100, 
+                            train_D_interval=1, train_G_interval=1):
 
         imgs, digits = self.imgs, self.digits
         imgs = (imgs.astype(np.float32) - .5) * 2
@@ -194,27 +195,31 @@ class CGAN():
                 fake_imgs = self.G.predict([imgs[idx_fake], random_target_digits])
 
                 # Train the discriminator
+                # d_loss_real = [loss, acc]
                 d_loss_real = self.D.train_on_batch([real_imgs, real_digits], valid)
                 d_loss_fake = self.D.train_on_batch([fake_imgs, random_target_digits], fake)
                 d_loss = 0.5 * np.add(d_loss_real, d_loss_fake)
 
+                print(f'{epoch} [D real: {d_loss_real[0]} | {d_loss_real[1]}]')
+                print(f'{epoch} [D fake: {d_loss_fake[0]} | {d_loss_fake[1]}]')
+
             # ---------------------
             #  Train Generator
             # ---------------------
+            if epoch % train_G_interval == 0:
+                # Condition on labels
+                idx = np.random.randint(0, imgs.shape[0], batch_size)
+                random_target_digits = onehot( np.random.randint(0, 10, batch_size), 10 )
 
-            # Condition on labels
-            idx = np.random.randint(0, imgs.shape[0], batch_size)
-            random_target_digits = onehot( np.random.randint(0, 10, batch_size), 10 )
+                # Train the generator
+                g_loss = self.combined.train_on_batch([imgs[idx], random_target_digits], valid)
 
-            # Train the generator
-            g_loss = self.combined.train_on_batch([imgs[idx], random_target_digits], valid)
+                # Plot the progress
+                print(f'{epoch} [G loss: {g_loss}]')
 
-            # Plot the progress
-            print ("%d [D loss: %f] [G loss: %f]" % (epoch, d_loss[0], g_loss))
-
-            # If at save interval => save generated image samples
-            if epoch % sample_interval == 0:
-                self.sample_images(epoch)
+                # If at save interval => save generated image samples
+                if epoch % sample_interval == 0:
+                    self.sample_images(epoch)
 
     def sample_images(self, epoch):
         n = 5
@@ -237,7 +242,6 @@ class CGAN():
 
 if __name__ == '__main__':
     cgan = CGAN()
-    cgan.train(epochs=20000, 
-            batch_size=64, 
-            sample_interval=200,
-            train_D_interval=5)
+    cgan.train(epochs=40000, 
+            batch_size=128, 
+            sample_interval=1000)
