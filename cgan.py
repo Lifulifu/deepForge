@@ -1,3 +1,5 @@
+#!/usr/bin/env/ python3
+
 from __future__ import print_function, division
 
 from keras.datasets import mnist
@@ -13,7 +15,7 @@ import matplotlib.pyplot as plt
 
 import numpy as np
 
-def load_mnist():  
+def load_mnist():
     (xtrain, ytrain), (xtest, ytest) = mnist.load_data()
     # pad to 32*32 and normalize to 0~1
     xtrain = np.pad(xtrain, ((0,0),(2,2),(2,2)), 'constant') / 255
@@ -30,11 +32,9 @@ def onehot(x, size):
 
 class CGAN():
     def __init__(self):
-        
+
         self.imgs, self.digits, self.test_imgs, self.test_digits = load_mnist()
-        self.img_rows = 32
-        self.img_cols = 32
-        self.channels = 1
+        self.img_rows, self.img_cols, self.channels = self.imgs.shape[1:]
         self.img_shape = (self.img_rows, self.img_cols, self.channels)
 
         optimizer = RMSprop(lr=0.0005)
@@ -45,8 +45,8 @@ class CGAN():
             metrics=['accuracy'])
         self.D.summary()
         self.G = self.build_generator()
-        
-        img_input = Input(shape=(32, 32, 1))
+
+        img_input = Input(shape=self.img_shape)
         digit_input = Input(shape=(10,))
         G_output = self.G([img_input, digit_input])
         G_output = Lambda(lambda x: (x + 1) * 0.5)(G_output)
@@ -171,7 +171,7 @@ class CGAN():
 
         return model
 
-    def train(self, epochs, batch_size=128, sample_interval=100, 
+    def train(self, epochs, batch_size=128, sample_interval=100,
                             train_D_interval=1, train_G_interval=1):
 
         imgs, digits = self.imgs, self.digits
@@ -242,6 +242,6 @@ class CGAN():
 
 if __name__ == '__main__':
     cgan = CGAN()
-    cgan.train(epochs=40000, 
-            batch_size=128, 
+    cgan.train(epochs=40000,
+            batch_size=128,
             sample_interval=1000)
