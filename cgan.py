@@ -15,7 +15,6 @@ from keras import metrics
 
 import matplotlib.pyplot as plt
 import os
-from os import path
 
 import numpy as np
 import tensorflow as tf
@@ -45,28 +44,28 @@ class CGAN():
         self.imgs, self.digits, self.test_imgs, self.test_digits = load_mnist()
         self.img_rows, self.img_cols, self.channels = self.imgs.shape[1:]
         self.img_shape = (self.img_rows, self.img_cols, self.channels)
+        loss_func = 'binary_crossentropy'
 
-        optimizer = RMSprop(lr=0.0001)
+        optimizer_D = RMSprop(lr=0.0005)
+        optimizer_G = RMSprop(lr=0.0001)
 
         self.D = self.build_discriminator()
-        self.D.compile(loss=['binary_crossentropy'],
-            optimizer=optimizer, metrics=[metrics.binary_accuracy])
+        self.D.compile(loss= loss_func,
+            optimizer=optimizer_D,
+            metrics=[metrics.binary_accuracy])
         self.D.summary()
-        self.G = self.build_generator()
+        self.G, self.G_mask = self.build_generator()
 
         img_input = Input(shape=self.img_shape)
         digit_input = Input(shape=(10,))
-        G_output = self.G([img_input, digit_input])
-        G_output = Lambda(lambda x: (x + 1) * 0.5)(G_output) # -1~1 to 0~1
+        img_added = self.G([img_input, digit_input])
 
-        img_added = Add()([img_input, G_output])
-        img_added = Lambda(lambda x: clip(x, 0, 1))(img_added)
         self.D.trainable = False
         D_output = self.D([img_added, digit_input])
         self.combined = Model([img_input, digit_input], D_output)
-        self.combined.compile(loss=['binary_crossentropy'],
-            optimizer=optimizer)
-        
+        self.combined.compile(loss=loss_func, optimizer=optimizer_G)
+        self.combined.summary()
+
         self.tb = keras.callbacks.TensorBoard(
             log_dir='./logs',
             histogram_freq=0,
@@ -83,10 +82,10 @@ class CGAN():
         # output: 32*32*1 generated image (-1~1)
         # -----
 
-        image_input = Input(shape=(32, 32, 1))
+        img_input = Input(shape=(32, 32, 1))
         digit_input = Input(shape=(10,))
 
-        x = Conv2D(16, (3,3), padding='same')(image_input)
+        x = Conv2D(16, (3,3), padding='same')(img_input)
         x = BatchNormalization(momentum=0.8)(x)
         x = MaxPooling2D((2,2))(x) # 16,16
         x1 = LeakyReLU(alpha=0.1)(x)
@@ -143,11 +142,17 @@ class CGAN():
         x = Concatenate()([x, x1])
         x = UpSampling2D((2,2))(x) # 32, 32
 
-        out = Conv2D(1, (3,3), padding='same', activation='tanh')(x)
+        mask = Conv2D(1, (3,3), padding='same', activation='tanh')(x)
 
-        model = Model([image_input, digit_input], out, name='G')
+        mask = Lambda(lambda x: (x + 1) * 0.5)(mask)
+        img_added = Add()([img_input, mask])
+        img_added = Lambda(lambda x: clip(x, 0, 1))(img_added)
 
-        return model
+        model = Model([img_input, digit_input], img_added, name='G')
+        model_mask = Model([img_input, digit_input], mask, name='G')
+
+        return model, model_mask
+
 
     def build_discriminator(self):
         # -----
@@ -155,10 +160,10 @@ class CGAN():
         # output: 0 ~ 1
         # -----
 
-        image_input = Input(shape=(32, 32, 1))
+        img_input = Input(shape=(32, 32, 1))
         digit_input = Input(shape=(10,))
 
-        x = Conv2D(16, (3,3), padding='same')(image_input)
+        x = Conv2D(16, (3,3), padding='same')(img_input)
         x = BatchNormalization(momentum=0.8)(x)
         x = MaxPooling2D((2,2))(x) # 16,16
         x = LeakyReLU(alpha=0.1)(x)
@@ -190,7 +195,7 @@ class CGAN():
         x = Dense(16)(x)
         out = Dense(1, activation='sigmoid')(x)
 
-        model = Model([image_input, digit_input], out, name='D')
+        model = Model([img_input, digit_input], out, name='D')
 
         return model
 
@@ -221,7 +226,7 @@ class CGAN():
                 # d_loss_real = [loss, acc]
                 d_loss_real = self.D.train_on_batch([real_imgs, real_digits], valid)
                 d_loss_fake = self.D.train_on_batch([fake_imgs, random_target_digits], fake)
-            
+
             d_loss = 0.5 * np.add(d_loss_real, d_loss_fake)
 
             # tensorboard
@@ -231,14 +236,17 @@ class CGAN():
             }
             self.tb.on_epoch_end(itr, logs)
 
-            # if d_loss_real < 1e-6:
+            print(f'{itr} [D real: {d_loss_real[0]} | {d_loss_real[1]}]')
+            print(f'{itr} [D fake: {d_loss_fake[0]} | {d_loss_fake[1]}]')
+
+            # if itr % 100 == 0:
             #     real_res = self.D.predict([real_imgs, real_digits]).flatten()
             #     fake_res = self.D.predict([fake_imgs, random_target_digits]).flatten()
-            #     print(real_res[-20:], valid[-20:])
-            #     print(acc(real_res[-20:], valid[-20:].flatten()))
-            #     print(fake_res[-20:], fake[-20:])
-            #     print(acc(fake_res[-20:], fake[-20:].flatten()))
-            #     exit()
+            #     print('\n------------------------------------')
+            #     print('real', real_res[-20:])
+            #     print('fake', fake_res[-20:])
+            #     print('------------------------------------\n')
+
 
             # ---------------------
             #  Train Generator
@@ -256,25 +264,27 @@ class CGAN():
                 }
                 self.tb.on_epoch_end(itr, logs)
 
+
             # If at save interval => save generated image samples
             if sample_interval > 0 and itr % sample_interval == 0:
-                self.sample_images(itr, save_path)
-        
+                self.sample_imgs(itr)
+
             # Plot the progress
             print(f'{itr} [G loss: {g_loss}]')
             print(f'{itr} [D real: {d_loss_real[0]} | {d_loss_real[1]}]')
             print(f'{itr} [D fake: {d_loss_fake[0]} | {d_loss_fake[1]}]')
-            
+
         self.tb.on_train_end(None)
 
-    def sample_images(self, itr, save_path):
+
+    def sample_imgs(self, itr):
         n = 5
         targets = onehot(np.array([4] * n), 10)
 
         gen_imgs = self.G.predict([self.test_imgs[:n], targets])
-        gen_imgs = self.test_imgs[:n] + (gen_imgs + 1) * 0.5
-        # Rescale images 0 - 1
-        gen_imgs = np.clip(gen_imgs, 0, 1)
+        # gen_imgs = self.test_imgs[:n] + (gen_imgs + 1) * 0.5
+        # # Rescale images 0 - 1
+        # gen_imgs = np.clip(gen_imgs, 0, 1)
 
         fig, axs = plt.subplots(n, 2)
         for i in range(n):
@@ -291,11 +301,10 @@ class CGAN():
 if __name__ == '__main__':
 
     model = CGAN()
-    model.train(iterations=20000, 
-            batch_size=128, 
-            sample_interval=1,
+    model.train(iterations=10000,
+            batch_size=128,
+            sample_interval=10,
+            train_D_iters=1,
             train_G_iters=1000,
-            save_path='imgs/G1000D1')
-    
-
+            save_path='imgs/06_test')
 
