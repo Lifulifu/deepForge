@@ -10,6 +10,7 @@ from keras.layers.convolutional import UpSampling2D, Conv2D
 from keras.backend import clip
 from keras.models import Sequential, Model
 from keras.optimizers import Adam, RMSprop
+from keras import metrics
 
 import matplotlib.pyplot as plt
 
@@ -42,7 +43,7 @@ class CGAN():
         self.D = self.build_discriminator()
         self.D.compile(loss=['binary_crossentropy'],
             optimizer=optimizer,
-            metrics=['accuracy'])
+            metrics=[metrics.binary_accuracy])
         self.D.summary()
         self.G = self.build_generator()
 
@@ -72,23 +73,25 @@ class CGAN():
         x = Conv2D(16, (3,3), padding='same')(image_input)
         x = BatchNormalization(momentum=0.8)(x)
         x = MaxPooling2D((2,2))(x) # 16,16
-        x = LeakyReLU(alpha=0.1)(x)
+        x1 = LeakyReLU(alpha=0.1)(x)
 
-        x = Conv2D(32, (3,3), padding='same')(x)
+        x = Conv2D(32, (3,3), padding='same')(x1)
         x = BatchNormalization(momentum=0.8)(x)
         x = MaxPooling2D((2,2))(x) # 8, 8
-        x = LeakyReLU(alpha=0.1)(x)
+        x2 = LeakyReLU(alpha=0.1)(x)
 
-        x = Conv2D(64, (3,3), padding='same')(x)
+        x = Conv2D(64, (3,3), padding='same')(x2)
         x = BatchNormalization(momentum=0.8)(x)
         x = MaxPooling2D((2,2))(x) # 4, 4
-        x = LeakyReLU(alpha=0.1)(x)
+        x3 = LeakyReLU(alpha=0.1)(x)
 
-        x = Conv2D(64, (3,3), padding='same')(x)
+        x = Conv2D(64, (3,3), padding='same')(x3)
         x = BatchNormalization(momentum=0.8)(x)
         x = MaxPooling2D((2,2))(x) # 2, 2
-        x = LeakyReLU(alpha=0.1)(x)
-        x = Flatten()(x)
+        x4 = LeakyReLU(alpha=0.1)(x)
+        # x = Conv2D(64, (2, 2), padding='valid')
+        # x = BatchNormalization(momentum=0.8)(x)
+        x = Flatten()(x4)
 
         x = Concatenate()([x, digit_input])
         x = LeakyReLU(alpha=0.1)(x)
@@ -103,21 +106,25 @@ class CGAN():
         x = LeakyReLU(alpha=0.1)(x)
 
         x = Reshape((2, 2, 64))(x)
+        x = Concatenate()([x, x4])
         x = UpSampling2D((2,2))(x) # 4, 4
 
         x = Conv2D(64, (3,3), padding='same')(x)
         x = BatchNormalization(momentum=0.8)(x)
         x = LeakyReLU(alpha=0.1)(x)
+        x = Concatenate()([x, x3])
         x = UpSampling2D((2,2))(x) # 8, 8
 
         x = Conv2D(32, (3,3), padding='same')(x)
         x = BatchNormalization(momentum=0.8)(x)
         x = LeakyReLU(alpha=0.1)(x)
+        x = Concatenate()([x, x2])
         x = UpSampling2D((2,2))(x) # 16, 16
 
         x = Conv2D(16, (3,3), padding='same')(x)
         x = BatchNormalization(momentum=0.8)(x)
         x = LeakyReLU(alpha=0.1)(x)
+        x = Concatenate()([x, x1])
         x = UpSampling2D((2,2))(x) # 32, 32
 
         out = Conv2D(1, (3,3), padding='same', activation='tanh')(x)
@@ -171,7 +178,7 @@ class CGAN():
 
         return model
 
-    def train(self, epochs, batch_size=128, sample_interval=100,
+    def train(self, iterations, batch_size=128, sample_interval=100,
                             train_D_interval=1, train_G_interval=1):
 
         imgs, digits = self.imgs, self.digits
@@ -180,12 +187,12 @@ class CGAN():
         valid = np.ones((batch_size, 1))
         fake = np.zeros((batch_size, 1))
 
-        for epoch in range(epochs):
+        for itr in range(1, iterations + 1):
 
             # ---------------------
             #  Train Discriminator
             # ---------------------
-            if epoch % train_D_interval == 0:
+            for _ in range(train_D_interval):
                 # Select a random half batch of images
                 idx_real = np.random.randint(0, imgs.shape[0], batch_size)
                 idx_fake = np.random.randint(0, imgs.shape[0], batch_size)
@@ -198,15 +205,24 @@ class CGAN():
                 # d_loss_real = [loss, acc]
                 d_loss_real = self.D.train_on_batch([real_imgs, real_digits], valid)
                 d_loss_fake = self.D.train_on_batch([fake_imgs, random_target_digits], fake)
-                d_loss = 0.5 * np.add(d_loss_real, d_loss_fake)
+            d_loss = 0.5 * np.add(d_loss_real, d_loss_fake)
 
-                print(f'{epoch} [D real: {d_loss_real[0]} | {d_loss_real[1]}]')
-                print(f'{epoch} [D fake: {d_loss_fake[0]} | {d_loss_fake[1]}]')
+            print(f'{itr} [D real: {d_loss_real[0]} | {d_loss_real[1]}]')
+            print(f'{itr} [D fake: {d_loss_fake[0]} | {d_loss_fake[1]}]')
+
+            if d_loss_real[0] < 1e-5:
+                real_res = self.D.predict([real_imgs, real_digits]).flatten()
+                fake_res = self.D.predict([fake_imgs, random_target_digits]).flatten()
+                print(real_res[-20:])
+                print(valid[-20:])
+                print(fake_res[-20:])
+                print(fake[-20:])
+                exit()
 
             # ---------------------
             #  Train Generator
             # ---------------------
-            if epoch % train_G_interval == 0:
+            for _ in range(train_G_interval):
                 # Condition on labels
                 idx = np.random.randint(0, imgs.shape[0], batch_size)
                 random_target_digits = onehot( np.random.randint(0, 10, batch_size), 10 )
@@ -215,13 +231,13 @@ class CGAN():
                 g_loss = self.combined.train_on_batch([imgs[idx], random_target_digits], valid)
 
                 # Plot the progress
-                print(f'{epoch} [G loss: {g_loss}]')
+            print(f'{itr} [G loss: {g_loss}]')
 
-                # If at save interval => save generated image samples
-                if epoch % sample_interval == 0:
-                    self.sample_images(epoch)
+            # If at save interval => save generated image samples
+            if itr % sample_interval == 0:
+                self.sample_images(itr)
 
-    def sample_images(self, epoch):
+    def sample_images(self, itr):
         n = 5
         targets = onehot(np.array([4] * n), 10)
 
@@ -236,12 +252,14 @@ class CGAN():
             axs[i, 0].axis('off')
             axs[i, 1].imshow(gen_imgs[i,:,:,0], cmap='gray')
             axs[i, 1].axis('off')
-        fig.savefig("imgs/%d.png" % epoch)
+        fig.savefig("imgs/%d.png" % itr)
         plt.close()
 
 
 if __name__ == '__main__':
     cgan = CGAN()
-    cgan.train(epochs=40000,
+    cgan.train(iterations=1000,
             batch_size=128,
-            sample_interval=1000)
+            sample_interval=100,
+            train_D_interval=1,
+            train_G_interval=100)
