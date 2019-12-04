@@ -201,7 +201,8 @@ class CGAN():
 
 
     def train(self, iterations, batch_size=128, sample_interval=100,
-                            train_D_iters=1, train_G_iters=1, save_path='./'):
+                            train_D_iters=1, train_G_iters=1, img_dir='./imgs'):
+
 
         imgs, digits = self.imgs, self.digits
         imgs = (imgs.astype(np.float32) - .5) * 2
@@ -236,9 +237,6 @@ class CGAN():
             }
             self.tb.on_epoch_end(itr, logs)
 
-            print(f'{itr} [D real: {d_loss_real[0]} | {d_loss_real[1]}]')
-            print(f'{itr} [D fake: {d_loss_fake[0]} | {d_loss_fake[1]}]')
-
             # if itr % 100 == 0:
             #     real_res = self.D.predict([real_imgs, real_digits]).flatten()
             #     fake_res = self.D.predict([fake_imgs, random_target_digits]).flatten()
@@ -267,7 +265,7 @@ class CGAN():
 
             # If at save interval => save generated image samples
             if sample_interval > 0 and itr % sample_interval == 0:
-                self.sample_imgs(itr)
+                self.sample_imgs(itr, img_dir)
 
             # Plot the progress
             print(f'{itr} [G loss: {g_loss}]')
@@ -277,7 +275,7 @@ class CGAN():
         self.tb.on_train_end(None)
 
 
-    def sample_imgs(self, itr):
+    def sample_imgs(self, itr, img_dir):
         n = 5
         targets = onehot(np.array([4] * n), 10)
 
@@ -292,9 +290,9 @@ class CGAN():
             axs[i, 0].axis('off')
             axs[i, 1].imshow(gen_imgs[i,:,:,0], cmap='gray')
             axs[i, 1].axis('off')
-        if not os.path.isdir(save_path):
-            os.makedirs(save_path)
-        fig.savefig(path.join(save_path, f'{itr}.png'))
+        if not os.path.isdir(img_dir):
+            os.makedirs(img_dir)
+        fig.savefig(os.path.join(img_dir, f'{itr}.png'))
         plt.close()
 
 
@@ -306,5 +304,5 @@ if __name__ == '__main__':
             sample_interval=10,
             train_D_iters=1,
             train_G_iters=1000,
-            save_path='imgs/06_test')
+            img_dir='./imgs/06_test')
 
