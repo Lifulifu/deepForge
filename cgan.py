@@ -1,5 +1,6 @@
 from __future__ import print_function, division
 
+import keras
 from keras.datasets import mnist
 from keras.layers import Input, Dense, Conv2D, Reshape, Flatten, Dropout, multiply, MaxPooling2D
 from keras.layers import BatchNormalization, Activation, Embedding, ZeroPadding2D, Concatenate, Lambda, Add
@@ -10,8 +11,10 @@ from keras.models import Sequential, Model
 from keras.optimizers import Adam, RMSprop
 
 import matplotlib.pyplot as plt
+from os import path
 
 import numpy as np
+import tensorflow as tf
 
 def load_mnist():  
     (xtrain, ytrain), (xtest, ytest) = mnist.load_data()
@@ -37,7 +40,7 @@ class CGAN():
         self.channels = 1
         self.img_shape = (self.img_rows, self.img_cols, self.channels)
 
-        optimizer = RMSprop(lr=0.0005)
+        optimizer = RMSprop(lr=0.0001)
 
         self.D = self.build_discriminator()
         self.D.compile(loss=['binary_crossentropy'],
@@ -49,7 +52,7 @@ class CGAN():
         img_input = Input(shape=(32, 32, 1))
         digit_input = Input(shape=(10,))
         G_output = self.G([img_input, digit_input])
-        G_output = Lambda(lambda x: (x + 1) * 0.5)(G_output)
+        G_output = Lambda(lambda x: (x + 1) * 0.5)(G_output) # -1~1 to 0~1
 
         img_added = Add()([img_input, G_output])
         img_added = Lambda(lambda x: clip(x, 0, 1))(img_added)
@@ -58,7 +61,16 @@ class CGAN():
         self.combined = Model([img_input, digit_input], D_output)
         self.combined.compile(loss=['binary_crossentropy'],
             optimizer=optimizer)
-        self.combined.summary()
+        
+        self.tb = keras.callbacks.TensorBoard(
+            log_dir='./logs',
+            histogram_freq=0,
+            batch_size=64,
+            write_graph=True,
+            write_grads=True
+        )
+        self.tb.set_model(self.combined)
+
 
     def build_generator(self):
         # -----
@@ -171,7 +183,7 @@ class CGAN():
 
         return model
 
-    def train(self, epochs, batch_size=128, sample_interval=100, 
+    def train(self, epochs, batch_size=128, sample_interval=100, save_path='./',
                             train_D_interval=1, train_G_interval=1):
 
         imgs, digits = self.imgs, self.digits
@@ -194,11 +206,17 @@ class CGAN():
                 real_imgs, real_digits = imgs[idx_real], onehot( digits[idx_real], 10 )
                 fake_imgs = self.G.predict([imgs[idx_fake], random_target_digits])
 
-                # Train the discriminator
                 # d_loss_real = [loss, acc]
                 d_loss_real = self.D.train_on_batch([real_imgs, real_digits], valid)
                 d_loss_fake = self.D.train_on_batch([fake_imgs, random_target_digits], fake)
                 d_loss = 0.5 * np.add(d_loss_real, d_loss_fake)
+
+                # tensorboard
+                logs = {
+                    'D_loss_real': d_loss_real[0],
+                    'D_loss_fake': d_loss_fake[0]
+                }
+                self.tb.on_epoch_end(epoch, logs)
 
                 print(f'{epoch} [D real: {d_loss_real[0]} | {d_loss_real[1]}]')
                 print(f'{epoch} [D fake: {d_loss_fake[0]} | {d_loss_fake[1]}]')
@@ -207,21 +225,26 @@ class CGAN():
             #  Train Generator
             # ---------------------
             if epoch % train_G_interval == 0:
-                # Condition on labels
                 idx = np.random.randint(0, imgs.shape[0], batch_size)
                 random_target_digits = onehot( np.random.randint(0, 10, batch_size), 10 )
 
-                # Train the generator
                 g_loss = self.combined.train_on_batch([imgs[idx], random_target_digits], valid)
 
-                # Plot the progress
+                # tensorboard
+                logs = {
+                    'G_loss': g_loss,
+                }
+                self.tb.on_epoch_end(epoch, logs)
+
                 print(f'{epoch} [G loss: {g_loss}]')
 
-                # If at save interval => save generated image samples
-                if epoch % sample_interval == 0:
-                    self.sample_images(epoch)
+            # If at save interval => save generated image samples
+            if sample_interval > 0 and epoch % sample_interval == 0:
+                self.sample_images(epoch, save_path)
+        
+        self.tb.on_train_end(None)
 
-    def sample_images(self, epoch):
+    def sample_images(self, epoch, save_path):
         n = 5
         targets = onehot(np.array([4] * n), 10)
 
@@ -236,12 +259,17 @@ class CGAN():
             axs[i, 0].axis('off')
             axs[i, 1].imshow(gen_imgs[i,:,:,0], cmap='gray')
             axs[i, 1].axis('off')
-        fig.savefig("imgs/%d.png" % epoch)
+        fig.savefig(path.join(save_path, f'{epoch}.png'))
         plt.close()
 
 
 if __name__ == '__main__':
-    cgan = CGAN()
-    cgan.train(epochs=40000, 
+    model = CGAN()
+    model.train(epochs=10000, 
             batch_size=128, 
-            sample_interval=1000)
+            sample_interval=0,
+            train_G_interval=2,
+            save_path='imgs/G2D1')
+    
+    self.imgs, self.digits, self.test_imgs, self.test_digits = load_mnist()
+    model.D.predict([self.test_imgs, ])
