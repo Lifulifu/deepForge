@@ -2,4 +2,5 @@ imgs/
 imgs_lifu/
 __pycache__/
 logs/
-
+models/
+*.png

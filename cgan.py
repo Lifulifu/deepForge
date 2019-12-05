@@ -8,8 +8,8 @@ from keras.layers import Input, Dense, Conv2D, Reshape, Flatten, Dropout, multip
 from keras.layers import BatchNormalization, Activation, Embedding, ZeroPadding2D, Concatenate, Lambda, Add
 from keras.layers.advanced_activations import LeakyReLU
 from keras.layers.convolutional import UpSampling2D, Conv2D
-from keras.backend import clip
-from keras.models import Sequential, Model
+import keras.backend as K
+from keras.models import Sequential, Model, load_model
 from keras.optimizers import Adam, RMSprop
 from keras import metrics
 
@@ -18,21 +18,7 @@ import os
 
 import numpy as np
 import tensorflow as tf
-
-def load_mnist():
-    (xtrain, ytrain), (xtest, ytest) = mnist.load_data()
-    # pad to 32*32 and normalize to 0~1
-    xtrain = np.pad(xtrain, ((0,0),(2,2),(2,2)), 'constant') / 255
-    xtest = np.pad(xtest, ((0,0),(2,2),(2,2)), 'constant') / 255
-    # expand channel dim
-    xtrain, xtest = xtrain[:, :, :, np.newaxis], xtest[:, :, :, np.newaxis]
-
-    return xtrain, ytrain, xtest, ytest
-
-def onehot(x, size):
-    result = np.zeros((x.size, size))
-    result[np.arange(x.size), x] = 1
-    return result
+from util import load_mnist, onehot
 
 def exclude(arr):
     result = [ np.random.choice(list({0,1,2,3,4,5,6,7,8,9}-{digit}), 1)[0] for digit in arr ]
@@ -148,7 +134,7 @@ class CGAN():
 
         mask = Lambda(lambda x: (x + 1) * 0.5)(mask)
         img_added = Add()([img_input, mask])
-        img_added = Lambda(lambda x: clip(x, 0, 1))(img_added)
+        img_added = Lambda(lambda x: K.clip(x, 0, 1))(img_added)
 
         model = Model([img_input, digit_input], img_added, name='G')
         model_mask = Model([img_input, digit_input], mask, name='G_mask')
@@ -202,8 +188,8 @@ class CGAN():
         return model
 
 
-    def train(self, iterations, batch_size=128, sample_interval=100,
-                            train_D_iters=1, train_G_iters=1, img_dir='./imgs'):
+    def train(self, iterations, batch_size=128, sample_interval=100, save_model_interval=100,
+                            train_D_iters=1, train_G_iters=1, img_dir='./imgs', model_dir='./models'):
 
         imgs, digits = self.imgs, self.digits
 
@@ -226,11 +212,13 @@ class CGAN():
 
                 # real image and correct digit
                 d_loss_real = self.D.train_on_batch([real_imgs, real_digits], valid)
+                # train real again
+                d_loss_real = self.D.train_on_batch([real_imgs, real_digits], valid)
                 # fake image and random digit
                 d_loss_fake = self.D.train_on_batch([fake_imgs, random_target_digits], fake)
                 # real image but wrong digit
                 d_loss_fake2 = self.D.train_on_batch([real_imgs, unmatch_digits], fake)
-
+    
             # d_loss = 0.5 * np.add(d_loss_real, d_loss_fake, d_loss_fake2)
 
             # tensorboard
@@ -261,6 +249,12 @@ class CGAN():
             # If at save interval => save generated image samples
             if sample_interval > 0 and itr % sample_interval == 0:
                 self.sample_imgs(itr, img_dir)
+    
+            if save_model_interval > 0 and itr % save_model_interval == 0:
+                if not os.path.isdir(model_dir):
+                    os.makedirs(model_dir)
+                self.D.save(os.path.join(model_dir, f'D{itr}.hdf5'))
+                self.G.save(os.path.join(model_dir, f'G{itr}.hdf5'))
 
             # Plot the progress
             print(f'{itr} [G loss: {g_loss[0]} | acc: {g_loss[1]}]')
@@ -269,7 +263,6 @@ class CGAN():
             print()
 
         self.tb.on_train_end(None)
-
 
     def sample_imgs(self, itr, img_dir):
         n = 5
@@ -286,7 +279,7 @@ class CGAN():
             axs[i, 1].axis('off')
             axs[i, 2].imshow(gen_imgs[i,:,:,0], cmap='gray')
             axs[i, 2].axis('off')
-        print(masks[0])
+
         if not os.path.isdir(img_dir):
             os.makedirs(img_dir)
         fig.savefig(os.path.join(img_dir, f'{itr}.png'))
@@ -296,10 +289,14 @@ class CGAN():
 if __name__ == '__main__':
 
     model = CGAN()
-    model.train(iterations=50000,
+    model.train(
+            iterations=50000,
             batch_size=128,
             sample_interval=200,
+            save_model_interval=1000,
             train_D_iters=1,
-            train_G_iters=1,
-            img_dir='./imgs/img0to1_G1D5')
+            train_G_iters=2,
+            img_dir='./imgs/doubleReal_G2D1',
+            model_dir='./models/doubleReal_G2D1')
+
     
