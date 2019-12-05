@@ -134,12 +134,6 @@ class CGAN():
                 self.D.save(os.path.join(model_dir, f'D{itr}.hdf5'))
                 self.G.save(os.path.join(model_dir, f'G{itr}.hdf5'))
 
-            if save_model_interval > 0 and itr % save_model_interval == 0:
-                if not os.path.isdir(model_dir):
-                    os.makedirs(model_dir)
-                self.D.save(os.path.join(model_dir, f'D{itr}.hdf5'))
-                self.G.save(os.path.join(model_dir, f'G{itr}.hdf5'))
-
             # Plot the progress
             print(f'{itr} [G loss: {g_loss[0]} | acc: {g_loss[1]}]')
             print(f'{itr} [D real: {d_loss_real[0]} | acc: {d_loss_real[1]}]')
