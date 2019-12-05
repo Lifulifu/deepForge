@@ -6,7 +6,7 @@ from keras.models import load_model
 
 from util import load_mnist, onehot
 #%%
-def plot_table(G, D):
+def plot_table(G, D, name):
     _, _, imgs, digits = load_mnist()
     input_imgs = [] # imgs of 0 ~ 9
     for i in range(10):
@@ -22,9 +22,10 @@ def plot_table(G, D):
             axs[i, j].imshow(gen_img[0, :, :, 0], cmap='gray')
             axs[i, j].axis('off')
     plt.show()
-    fig.savefig(os.path.join(f'table.png'), dpi=150)
+    fig.savefig(os.path.join(f'{name}.png'), dpi=150)
 
-G = load_model('models/doubleReal_G2D1/G20000.hdf5')
-plot_table(G, None)
+model_name = 'G10000'
+G = load_model(f'models/14_inception_G10D5_model_10000iter/{model_name}.hdf5')
+plot_table(G, None, model_name)
 
 # %%

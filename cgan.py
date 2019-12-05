@@ -156,8 +156,8 @@ class CGAN():
 
         gen_imgs = self.G.predict([test_imgs, targets])
         masks = self.G_mask.predict([test_imgs, targets])
-        D_losses_T = self.D.predict([test_imgs, targets])
-        D_losses_F = self.D.predict([gen_imgs, targets])
+        D_pred_T = self.D.predict([test_imgs, targets])
+        D_pred_F = self.D.predict([gen_imgs, targets])
 
         fig, axs = plt.subplots(n, 3, figsize=(8, 6))
         fig.tight_layout()
@@ -166,9 +166,9 @@ class CGAN():
                 axs[i, no].imshow(img[i, :, :, 0], cmap='gray')
                 axs[i, no].axis('off')
                 if 0 == no:
-                    axs[i, no].text(-20, -2, f'D_loss_T: {D_losses_T[i]}')
+                    axs[i, no].text(-20, -2, f'D_pred_T: {D_pred_T[i]}')
                 elif 2 == no:
-                    axs[i, no].text(-20, -2, f'D_loss_F: {D_losses_F[i]}')
+                    axs[i, no].text(-20, -2, f'D_pred_F: {D_pred_F[i]}')
         if not os.path.isdir(img_dir):
             os.makedirs(img_dir)
         fig.savefig(os.path.join(img_dir, f'{itr}.png'))
