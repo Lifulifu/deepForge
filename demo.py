@@ -22,7 +22,7 @@ def plot_table(G, D):
             axs[i, j].imshow(gen_img[0, :, :, 0], cmap='gray')
             axs[i, j].axis('off')
     plt.show()
-    fig.savefig(os.path.join(f'table.png'), dpi=150)
+    fig.savefig(os.path.join(f'table.png'), dpi=100)
 
 G = load_model('models/doubleReal_G2D1/G20000.hdf5')
 plot_table(G, None)
