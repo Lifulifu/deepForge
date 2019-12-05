@@ -46,7 +46,7 @@ class CGAN():
         self.img_shape = (self.img_rows, self.img_cols, self.channels)
         loss_func = 'binary_crossentropy'
 
-        optimizer_D = RMSprop(lr=0.0005)
+        optimizer_D = RMSprop(lr=0.0001)
         optimizer_G = RMSprop(lr=0.0001)
 
         self.D = self.build_discriminator()
@@ -54,17 +54,31 @@ class CGAN():
             optimizer=optimizer_D,
             metrics=[metrics.binary_accuracy])
         self.D.summary()
+
+        self.Ds = self.build_discriminator1()
+        self.Ds.compile(loss= loss_func,
+            optimizer=optimizer_D,
+            metrics=[metrics.binary_accuracy])
+        self.Ds.summary()
+
         self.G, self.G_mask = self.build_generator()
 
         img_input = Input(shape=self.img_shape)
         digit_input = Input(shape=(10,))
         img_added = self.G([img_input, digit_input])
+        img_mask = self.G_mask([img_input, digit_input])
 
         self.D.trainable = False
+        self.Ds.trainable = False
         D_output = self.D([img_added, digit_input])
+        Ds_output = self.Ds(img_mask)
         self.combined = Model([img_input, digit_input], D_output)
         self.combined.compile(loss=loss_func, optimizer=optimizer_G)
         self.combined.summary()
+
+        self.s_combined = Model([img_input, digit_input], Ds_output)
+        self.s_combined.compile(loss=loss_func, optimizer=optimizer_G)
+        self.s_combined.summary()
 
         self.tb = keras.callbacks.TensorBoard(
             log_dir='./logs',
@@ -199,8 +213,50 @@ class CGAN():
 
         return model
 
+    def build_discriminator1(self):
+        # -----
+        # input: 32*32*1 image + target digit one hot
+        # output: 0 ~ 1
+        # -----
 
-    def train(self, iterations, batch_size=128, sample_interval=100,
+        img_input = Input(shape=(32, 32, 1))
+
+        x = Conv2D(16, (3,3), padding='same')(img_input)
+        x = BatchNormalization(momentum=0.8)(x)
+        x = MaxPooling2D((2,2))(x) # 16,16
+        x = LeakyReLU(alpha=0.1)(x)
+
+        x = Conv2D(32, (3,3), padding='same')(x)
+        x = BatchNormalization(momentum=0.8)(x)
+        x = MaxPooling2D((2,2))(x) # 8, 8
+        x = LeakyReLU(alpha=0.1)(x)
+
+        x = Conv2D(64, (3,3), padding='same')(x)
+        x = BatchNormalization(momentum=0.8)(x)
+        x = MaxPooling2D((2,2))(x) # 4, 4
+        x = LeakyReLU(alpha=0.1)(x)
+
+        x = Conv2D(128, (3,3), padding='same')(x)
+        x = BatchNormalization(momentum=0.8)(x)
+        x = MaxPooling2D((2,2))(x) # 2, 2
+        x = LeakyReLU(alpha=0.1)(x)
+        x = Flatten()(x)
+
+
+        x = LeakyReLU(alpha=0.1)(x)
+        x = Dense(128)(x)
+        x = LeakyReLU(alpha=0.1)(x)
+        x = Dense(64)(x)
+        x = LeakyReLU(alpha=0.1)(x)
+        x = Dense(32)(x)
+        x = LeakyReLU(alpha=0.1)(x)
+        x = Dense(16)(x)
+        out = Dense(1, activation='sigmoid')(x)
+
+        model = Model(img_input, out, name='Ds')
+        return model
+
+    def train(self, iterations, batch_size=128, sample_interval=10,
                             train_D_iters=1, train_G_iters=1, img_dir='./imgs'):
 
 
@@ -223,12 +279,17 @@ class CGAN():
 
                 real_imgs, real_digits = imgs[idx_real], onehot( digits[idx_real], 10 )
                 fake_imgs = self.G.predict([imgs[idx_fake], random_target_digits])
+                fake_mask = self.G_mask.predict([imgs[idx_fake], random_target_digits])
 
                 # d_loss_real = [loss, acc]
                 d_loss_real = self.D.train_on_batch([real_imgs, real_digits], valid)
                 d_loss_fake = self.D.train_on_batch([fake_imgs, random_target_digits], fake)
 
+                ds_loss_real = self.Ds.train_on_batch(real_imgs, valid)
+                ds_loss_fake = self.Ds.train_on_batch(fake_mask, fake)
+
             d_loss = 0.5 * np.add(d_loss_real, d_loss_fake)
+            ds_loss = 0.5 * np.add(ds_loss_real, ds_loss_fake)
 
             # tensorboard
             logs = {
@@ -255,6 +316,7 @@ class CGAN():
                 random_target_digits = onehot( np.random.randint(0, 10, batch_size), 10 )
 
                 g_loss = self.combined.train_on_batch([imgs[idx], random_target_digits], valid)
+                gs_loss = self.s_combined.train_on_batch([imgs[idx], random_target_digits], valid)
 
                 # tensorboard
                 logs = {
@@ -269,6 +331,7 @@ class CGAN():
 
             # Plot the progress
             print(f'{itr} [G loss: {g_loss}]')
+            print(f'{itr} [Gs loss: {gs_loss}]')
             print(f'{itr} [D real: {d_loss_real[0]} | {d_loss_real[1]}]')
             print(f'{itr} [D fake: {d_loss_fake[0]} | {d_loss_fake[1]}]')
 
@@ -301,8 +364,7 @@ if __name__ == '__main__':
     model = CGAN()
     model.train(iterations=10000,
             batch_size=128,
-            sample_interval=10,
+            sample_interval=1,
             train_D_iters=1,
-            train_G_iters=1000,
-            img_dir='./imgs/06_test')
-
+            train_G_iters=100,
+            img_dir='./imgs/01_test')
