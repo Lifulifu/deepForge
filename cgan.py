@@ -19,6 +19,7 @@ import os
 import numpy as np
 import tensorflow as tf
 from util import load_mnist, onehot
+from model import build_discriminator, build_generator
 
 def exclude(arr):
     result = [ np.random.choice(list({0,1,2,3,4,5,6,7,8,9}-{digit}), 1)[0] for digit in arr ]
@@ -35,12 +36,12 @@ class CGAN():
         optimizer_D = Adam(lr=0.0002)
         optimizer_G = Adam(lr=0.0002)
 
-        self.D = self.build_discriminator()
+        self.D = build_discriminator()
         self.D.compile(loss= loss_func,
             optimizer=optimizer_D,
             metrics=[metrics.binary_accuracy])
         self.D.summary()
-        self.G, self.G_mask = self.build_generator()
+        self.G, self.G_mask = build_generator()
 
         img_input = Input(shape=self.img_shape)
         digit_input = Input(shape=(10,))
@@ -49,7 +50,7 @@ class CGAN():
         self.D.trainable = False
         D_output = self.D([img_added, digit_input])
         self.combined = Model([img_input, digit_input], D_output)
-        self.combined.compile(loss=loss_func, 
+        self.combined.compile(loss=loss_func,
             optimizer=optimizer_G,
             metrics=[metrics.binary_accuracy])
         self.combined.summary()
@@ -63,129 +64,6 @@ class CGAN():
         )
         self.tb.set_model(self.combined)
 
-
-    def build_generator(self):
-        # -----
-        # input: 32*32*1 image (0~1) + target digit one hot
-        # output: 32*32*1 generated image (-1~1)
-        # -----
-
-        img_input = Input(shape=(32, 32, 1))
-        digit_input = Input(shape=(10,))
-
-        x = Conv2D(16, (3,3), padding='same')(img_input)
-        x = BatchNormalization(momentum=0.8)(x)
-        x = MaxPooling2D((2,2))(x) # 16,16
-        x1 = LeakyReLU(alpha=0.1)(x)
-
-        x = Conv2D(32, (3,3), padding='same')(x1)
-        x = BatchNormalization(momentum=0.8)(x)
-        x = MaxPooling2D((2,2))(x) # 8, 8
-        x2 = LeakyReLU(alpha=0.1)(x)
-
-        x = Conv2D(64, (3,3), padding='same')(x2)
-        x = BatchNormalization(momentum=0.8)(x)
-        x = MaxPooling2D((2,2))(x) # 4, 4
-        x3 = LeakyReLU(alpha=0.1)(x)
-
-        x = Conv2D(64, (3,3), padding='same')(x3)
-        x = BatchNormalization(momentum=0.8)(x)
-        x = MaxPooling2D((2,2))(x) # 2, 2
-        x4 = LeakyReLU(alpha=0.1)(x)
-        # x = Conv2D(64, (2, 2), padding='valid')
-        # x = BatchNormalization(momentum=0.8)(x)
-        x = Flatten()(x4)
-
-        x = Concatenate()([x, digit_input])
-        x = LeakyReLU(alpha=0.1)(x)
-        x = Dense(128)(x)
-        x = BatchNormalization(momentum=0.8)(x)
-        x = LeakyReLU(alpha=0.1)(x)
-        x = Dense(64)(x)
-        x = BatchNormalization(momentum=0.8)(x)
-        x = LeakyReLU(alpha=0.1)(x)
-        x = Dense(2*2*64)(x)
-        x = BatchNormalization(momentum=0.8)(x)
-        x = LeakyReLU(alpha=0.1)(x)
-
-        x = Reshape((2, 2, 64))(x)
-        x = Concatenate()([x, x4])
-        x = UpSampling2D((2,2))(x) # 4, 4
-
-        x = Conv2D(64, (3,3), padding='same')(x)
-        x = BatchNormalization(momentum=0.8)(x)
-        x = LeakyReLU(alpha=0.1)(x)
-        x = Concatenate()([x, x3])
-        x = UpSampling2D((2,2))(x) # 8, 8
-
-        x = Conv2D(32, (3,3), padding='same')(x)
-        x = BatchNormalization(momentum=0.8)(x)
-        x = LeakyReLU(alpha=0.1)(x)
-        x = Concatenate()([x, x2])
-        x = UpSampling2D((2,2))(x) # 16, 16
-
-        x = Conv2D(16, (3,3), padding='same')(x)
-        x = BatchNormalization(momentum=0.8)(x)
-        x = LeakyReLU(alpha=0.1)(x)
-        x = Concatenate()([x, x1])
-        x = UpSampling2D((2,2))(x) # 32, 32
-
-        mask = Conv2D(1, (3,3), padding='same', activation='tanh')(x)
-
-        mask = Lambda(lambda x: (x + 1) * 0.5)(mask)
-        img_added = Add()([img_input, mask])
-        img_added = Lambda(lambda x: K.clip(x, 0, 1))(img_added)
-
-        model = Model([img_input, digit_input], img_added, name='G')
-        model_mask = Model([img_input, digit_input], mask, name='G_mask')
-
-        return model, model_mask
-
-
-    def build_discriminator(self):
-        # -----
-        # input: 32*32*1 image + target digit one hot
-        # output: 0 ~ 1
-        # -----
-
-        img_input = Input(shape=(32, 32, 1))
-        digit_input = Input(shape=(10,))
-
-        x = Conv2D(16, (3,3), padding='same')(img_input)
-        x = BatchNormalization(momentum=0.8)(x)
-        x = MaxPooling2D((2,2))(x) # 16,16
-        x = LeakyReLU(alpha=0.1)(x)
-
-        x = Conv2D(32, (3,3), padding='same')(x)
-        x = BatchNormalization(momentum=0.8)(x)
-        x = MaxPooling2D((2,2))(x) # 8, 8
-        x = LeakyReLU(alpha=0.1)(x)
-
-        x = Conv2D(64, (3,3), padding='same')(x)
-        x = BatchNormalization(momentum=0.8)(x)
-        x = MaxPooling2D((2,2))(x) # 4, 4
-        x = LeakyReLU(alpha=0.1)(x)
-
-        x = Conv2D(128, (3,3), padding='same')(x)
-        x = BatchNormalization(momentum=0.8)(x)
-        x = MaxPooling2D((2,2))(x) # 2, 2
-        x = LeakyReLU(alpha=0.1)(x)
-        x = Flatten()(x)
-
-        x = Concatenate()([x, digit_input])
-        x = LeakyReLU(alpha=0.1)(x)
-        x = Dense(128)(x)
-        x = LeakyReLU(alpha=0.1)(x)
-        x = Dense(64)(x)
-        x = LeakyReLU(alpha=0.1)(x)
-        x = Dense(32)(x)
-        x = LeakyReLU(alpha=0.1)(x)
-        x = Dense(16)(x)
-        out = Dense(1, activation='sigmoid')(x)
-
-        model = Model([img_input, digit_input], out, name='D')
-
-        return model
 
 
     def train(self, iterations, batch_size=128, sample_interval=100, save_model_interval=100,
@@ -212,13 +90,13 @@ class CGAN():
 
                 # real image and correct digit
                 d_loss_real = self.D.train_on_batch([real_imgs, real_digits], valid)
-                # train real again
-                d_loss_real = self.D.train_on_batch([real_imgs, real_digits], valid)
                 # fake image and random digit
                 d_loss_fake = self.D.train_on_batch([fake_imgs, random_target_digits], fake)
                 # real image but wrong digit
                 d_loss_fake2 = self.D.train_on_batch([real_imgs, unmatch_digits], fake)
-    
+                # train real again
+                d_loss_real = self.D.train_on_batch([real_imgs, real_digits], valid)
+
             # d_loss = 0.5 * np.add(d_loss_real, d_loss_fake, d_loss_fake2)
 
             # tensorboard
@@ -249,7 +127,13 @@ class CGAN():
             # If at save interval => save generated image samples
             if sample_interval > 0 and itr % sample_interval == 0:
                 self.sample_imgs(itr, img_dir)
-    
+
+            if save_model_interval > 0 and itr % save_model_interval == 0:
+                if not os.path.isdir(model_dir):
+                    os.makedirs(model_dir)
+                self.D.save(os.path.join(model_dir, f'D{itr}.hdf5'))
+                self.G.save(os.path.join(model_dir, f'G{itr}.hdf5'))
+
             if save_model_interval > 0 and itr % save_model_interval == 0:
                 if not os.path.isdir(model_dir):
                     os.makedirs(model_dir)
@@ -260,6 +144,7 @@ class CGAN():
             print(f'{itr} [G loss: {g_loss[0]} | acc: {g_loss[1]}]')
             print(f'{itr} [D real: {d_loss_real[0]} | acc: {d_loss_real[1]}]')
             print(f'{itr} [D fake: {d_loss_fake[0]} | acc: {d_loss_fake[1]}]')
+            print(f'{itr} [D fake2: {d_loss_fake2[0]} | acc: {d_loss_fake2[1]}]')
             print()
 
         self.tb.on_train_end(None)
@@ -267,19 +152,23 @@ class CGAN():
     def sample_imgs(self, itr, img_dir):
         n = 5
         targets = onehot( np.full((n, 1), 4), 10 )
+        test_imgs = self.test_imgs[:n]
 
-        gen_imgs = self.G.predict([self.test_imgs[:n], targets])
-        masks = self.G_mask.predict([self.test_imgs[:n], targets])
+        gen_imgs = self.G.predict([test_imgs, targets])
+        masks = self.G_mask.predict([test_imgs, targets])
+        D_losses_T = self.D.predict([test_imgs, targets])
+        D_losses_F = self.D.predict([gen_imgs, targets])
 
-        fig, axs = plt.subplots(n, 3)
+        fig, axs = plt.subplots(n, 3, figsize=(8, 6))
+        fig.tight_layout()
         for i in range(n):
-            axs[i, 0].imshow(self.test_imgs[i,:,:,0], cmap='gray')
-            axs[i, 0].axis('off')
-            axs[i, 1].imshow(masks[i,:,:,0], cmap='gray')
-            axs[i, 1].axis('off')
-            axs[i, 2].imshow(gen_imgs[i,:,:,0], cmap='gray')
-            axs[i, 2].axis('off')
-
+            for no, img in enumerate([test_imgs, masks, gen_imgs]):
+                axs[i, no].imshow(img[i, :, :, 0], cmap='gray')
+                axs[i, no].axis('off')
+                if 0 == no:
+                    axs[i, no].text(-20, -2, f'D_loss_T: {D_losses_T[i]}')
+                elif 2 == no:
+                    axs[i, no].text(-20, -2, f'D_loss_F: {D_losses_F[i]}')
         if not os.path.isdir(img_dir):
             os.makedirs(img_dir)
         fig.savefig(os.path.join(img_dir, f'{itr}.png'))
@@ -288,15 +177,16 @@ class CGAN():
 
 if __name__ == '__main__':
 
+    # virsion_name = '14_inception_G10D5_model_10000iter'
+    virsion_name = 'test'
     model = CGAN()
     model.train(
             iterations=50000,
             batch_size=128,
-            sample_interval=200,
-            save_model_interval=1000,
-            train_D_iters=1,
-            train_G_iters=2,
-            img_dir='./imgs/doubleReal_G2D1',
-            model_dir='./models/doubleReal_G2D1')
+            sample_interval=1000,
+            save_model_interval=2000,
+            train_D_iters=5,
+            train_G_iters=10,
+            img_dir=f'./imgs/{virsion_name}',
+            model_dir=f'./models/{virsion_name}')
 
-    
