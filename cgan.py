@@ -134,12 +134,6 @@ class CGAN():
                 self.D.save(os.path.join(model_dir, f'D{itr}.hdf5'))
                 self.G.save(os.path.join(model_dir, f'G{itr}.hdf5'))
 
-            if save_model_interval > 0 and itr % save_model_interval == 0:
-                if not os.path.isdir(model_dir):
-                    os.makedirs(model_dir)
-                self.D.save(os.path.join(model_dir, f'D{itr}.hdf5'))
-                self.G.save(os.path.join(model_dir, f'G{itr}.hdf5'))
-
             # Plot the progress
             print(f'{itr} [G loss: {g_loss[0]} | acc: {g_loss[1]}]')
             print(f'{itr} [D real: {d_loss_real[0]} | acc: {d_loss_real[1]}]')
@@ -156,8 +150,8 @@ class CGAN():
 
         gen_imgs = self.G.predict([test_imgs, targets])
         masks = self.G_mask.predict([test_imgs, targets])
-        D_losses_T = self.D.predict([test_imgs, targets])
-        D_losses_F = self.D.predict([gen_imgs, targets])
+        D_pred_T = self.D.predict([test_imgs, targets])
+        D_pred_F = self.D.predict([gen_imgs, targets])
 
         fig, axs = plt.subplots(n, 3, figsize=(8, 6))
         fig.tight_layout()
@@ -166,9 +160,9 @@ class CGAN():
                 axs[i, no].imshow(img[i, :, :, 0], cmap='gray')
                 axs[i, no].axis('off')
                 if 0 == no:
-                    axs[i, no].text(-20, -2, f'D_loss_T: {D_losses_T[i]}')
+                    axs[i, no].text(-20, -2, f'D_pred_T: {D_pred_T[i]}')
                 elif 2 == no:
-                    axs[i, no].text(-20, -2, f'D_loss_F: {D_losses_F[i]}')
+                    axs[i, no].text(-20, -2, f'D_pred_F: {D_pred_F[i]}')
         if not os.path.isdir(img_dir):
             os.makedirs(img_dir)
         fig.savefig(os.path.join(img_dir, f'{itr}.png'))
