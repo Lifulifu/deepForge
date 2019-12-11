@@ -6,16 +6,19 @@ from keras.models import load_model
 
 from util import load_mnist, onehot
 #%%
-def plot_table(G, D, name):
+def plot_table(G, D, name, random=True):
     _, _, imgs, digits = load_mnist()
     input_imgs = [] # imgs of 0 ~ 9
     for i in range(10):
         imgs_filtered = imgs[np.where(digits == i)[0]]
-        idx = np.random.randint(0, imgs_filtered.shape[0])
+        if random:
+            idx = np.random.randint(0, imgs_filtered.shape[0])
+        else:
+            idx = 0
         input_imgs.append(imgs_filtered[idx])
 
     fig, axs = plt.subplots(10, 10)
-    fig.set_size_inches(60, 60)
+    fig.set_size_inches(50, 50)
     for i in range(10): # for input img
         for j in range(10): # for target digit
             gen_img = G.predict([np.expand_dims(input_imgs[i], axis=0), onehot(np.full((1, 1), j), 10)])
