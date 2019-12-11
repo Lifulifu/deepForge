@@ -15,18 +15,19 @@ from keras import metrics
 
 import matplotlib.pyplot as plt
 import os
+import h5py
 
 import numpy as np
 import tensorflow as tf
 from util import load_mnist, onehot
-from model import build_discriminator, build_generator
+from model import build_discriminator, build_generator, build_generator_incep
 
 def exclude(arr):
     result = [ np.random.choice(list({0,1,2,3,4,5,6,7,8,9}-{digit}), 1)[0] for digit in arr ]
     return np.array(result)
 
 class CGAN():
-    def __init__(self):
+    def __init__(self, model_name=None):
 
         self.imgs, self.digits, self.test_imgs, self.test_digits = load_mnist()
         self.img_rows, self.img_cols, self.channels = self.imgs.shape[1:]
@@ -41,7 +42,8 @@ class CGAN():
             optimizer=optimizer_D,
             metrics=[metrics.binary_accuracy])
         self.D.summary()
-        self.G, self.G_mask = build_generator()
+        self.G, self.G_mask = build_generator_incep()
+        # self.G, self.G_mask = build_generator()
 
         img_input = Input(shape=self.img_shape)
         digit_input = Input(shape=(10,))
@@ -64,7 +66,14 @@ class CGAN():
         )
         self.tb.set_model(self.combined)
 
-
+        #
+        # w1 = self.G.get_weights()
+        # self.G = load_model(model_name)
+        # w2 = self.G.get_weights()
+        # res = np.sum([np.array_equal(w1[i], w1[i]) for i in range(len(w1))])
+        # print(res)
+        #
+        # exit()
 
     def train(self, iterations, batch_size=128, sample_interval=100, save_model_interval=100,
                             train_D_iters=1, train_G_iters=1, img_dir='./imgs', model_dir='./models'):
@@ -93,7 +102,8 @@ class CGAN():
                 # fake image and random digit
                 d_loss_fake = self.D.train_on_batch([fake_imgs, random_target_digits], fake)
                 # real image but wrong digit
-                d_loss_fake2 = self.D.train_on_batch([real_imgs, unmatch_digits], fake)
+                d_loss_fake2 = self.D.train_on_batch([real_imgs, unmatch_digits], -valid)
+                # d_loss_fake2 = self.D.train_on_batch([real_imgs, unmatch_digits], fake)
                 # train real again
                 d_loss_real = self.D.train_on_batch([real_imgs, real_digits], valid)
 
@@ -133,6 +143,7 @@ class CGAN():
                     os.makedirs(model_dir)
                 self.D.save(os.path.join(model_dir, f'D{itr}.hdf5'))
                 self.G.save(os.path.join(model_dir, f'G{itr}.hdf5'))
+                self.G_mask.save(os.path.join(model_dir, f'G_mask{itr}.hdf5'))
 
             # Plot the progress
             print(f'{itr} [G loss: {g_loss[0]} | acc: {g_loss[1]}]')
@@ -171,16 +182,16 @@ class CGAN():
 
 if __name__ == '__main__':
 
-    # virsion_name = '14_inception_G10D5_model_10000iter'
-    virsion_name = 'test'
-    model = CGAN()
+    virsion_name = '18_inception_G2D1_model_100000iter'
+    # virsion_name = 'test'
+    model = CGAN('./models/test/G10000.hdf5')
     model.train(
-            iterations=50000,
+            iterations=100000,
             batch_size=128,
-            sample_interval=1000,
-            save_model_interval=2000,
-            train_D_iters=5,
-            train_G_iters=10,
+            sample_interval=2000,
+            save_model_interval=5000,
+            train_D_iters=1,
+            train_G_iters=2,
             img_dir=f'./imgs/{virsion_name}',
             model_dir=f'./models/{virsion_name}')
 

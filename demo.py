@@ -25,8 +25,33 @@ def plot_table(G, D, name):
 
     fig.savefig(os.path.join(f'{name}.png'), dpi=150)
 
-model_name = 'G10000'
-G = load_model(f'models/14_inception_G10D5_model_10000iter/{model_name}.hdf5')
-plot_table(G, None, model_name)
+def plot_fig(G, G_mask, n, t):
+
+    _, _, imgs, digits = load_mnist()
+
+    target = onehot(np.full((1, 1), t), 10)
+    use_img = imgs[n][np.newaxis, ...]
+    gen_img = G.predict([use_img, target])
+    mask_img = G_mask.predict([use_img, target])
+    fig, axs = plt.subplots(1, 3, figsize=(4, 3))
+    axs[0].imshow(use_img[0, :, :, 0], cmap='gray')
+    axs[0].axis('off')
+    axs[1].imshow(mask_img[0, :, :, 0], cmap='gray')
+    axs[1].axis('off')
+    axs[2].imshow(gen_img[0, :, :, 0], cmap='gray')
+    axs[2].axis('off')
+    fig.savefig(os.path.join(f'./tmp/fig_{n}_{t}'))
+
+if '__main__' == __name__:
+
+    for i in range(10000, 50000, 10000):
+        model_name = f'{i}'
+        G = load_model(f'models/16_inception_G2D1_model_50000iter/G{model_name}.hdf5')
+        # G_mask = load_model(f'models/16_inception_G2D1_model_50000iter/G_mask{model_name}.hdf5')
+        plot_table(G, None, model_name)
+    # for i in range(0, 60):
+    #     plot_fig(G, G_mask, i, 8)
+    #     plot_fig(G, G_mask, i, 9)
+    #     plot_fig(G, G_mask, i, 3)
 
 # %%
