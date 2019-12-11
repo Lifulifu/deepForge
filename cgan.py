@@ -76,7 +76,7 @@ class CGAN():
         # exit()
 
     def train(self, iterations, batch_size=128, sample_interval=100, save_model_interval=100,
-                            train_D_iters=1, train_G_iters=1, img_dir='./imgs', model_dir='./models'):
+                            train_D_iters=1, train_G_iters=1, img_dir='./', model_dir='./'):
 
         imgs, digits = self.imgs, self.digits
 
@@ -182,16 +182,16 @@ class CGAN():
 
 if __name__ == '__main__':
 
-    virsion_name = '18_inception_G2D1_model_100000iter'
-    # virsion_name = 'test'
-    model = CGAN('./models/test/G10000.hdf5')
+    version_name = '18_inception_G2D1_model_100000iter'
+    # version_name = 'test'
+    model = CGAN()
     model.train(
             iterations=100000,
             batch_size=128,
-            sample_interval=2000,
+            sample_interval=2500,
             save_model_interval=5000,
             train_D_iters=1,
             train_G_iters=2,
-            img_dir=f'./imgs/{virsion_name}',
-            model_dir=f'./models/{virsion_name}')
+            img_dir=f'./outputs/{version_name}/imgs',
+            model_dir=f'./outputs/{version_name}/models')
 

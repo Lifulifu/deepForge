@@ -26,7 +26,7 @@ def plot_table(G, D, name, random=True):
             axs[i, j].axis('off')
     plt.show()
 
-    fig.savefig(os.path.join(f'{name}.png'), dpi=150)
+    fig.savefig(name, dpi=150)
 
 def plot_fig(G, G_mask, n, t):
 
@@ -47,11 +47,14 @@ def plot_fig(G, G_mask, n, t):
 
 if '__main__' == __name__:
 
-    for i in range(10000, 50000, 10000):
-        model_name = f'{i}'
-        G = load_model(f'models/16_inception_G2D1_model_50000iter/G{model_name}.hdf5')
-        # G_mask = load_model(f'models/16_inception_G2D1_model_50000iter/G_mask{model_name}.hdf5')
-        plot_table(G, None, model_name)
+    version_name = 'test'
+    # version_name = '16_inception_G2D1_model_50000iter'
+
+    model_id = '50'
+    G = load_model(f'./outputs/{version_name}/models/G{model_id}.hdf5')
+    # G_mask = load_model(f'./outputs/{version_name}/models/G_mask{model_id}.hdf5')
+    plot_table(G, None, f'./outputs/{version_name}/table_{model_id}.png')
+
     # for i in range(0, 60):
     #     plot_fig(G, G_mask, i, 8)
     #     plot_fig(G, G_mask, i, 9)
