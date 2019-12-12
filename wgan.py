@@ -3,56 +3,92 @@
 from __future__ import print_function, division
 
 import keras
-import keras.backend as K
 from keras.datasets import mnist
 from keras.layers import Input, Dense, Conv2D, Reshape, Flatten, Dropout, multiply, MaxPooling2D
 from keras.layers import BatchNormalization, Activation, Embedding, ZeroPadding2D, Concatenate, Lambda, Add
 from keras.layers.advanced_activations import LeakyReLU
 from keras.layers.convolutional import UpSampling2D, Conv2D
-from keras.backend import clip
-from keras.models import Sequential, Model
+import keras.backend as K
+from keras.models import Sequential, Model, load_model
 from keras.optimizers import Adam, RMSprop
 from keras import metrics
 
 import matplotlib.pyplot as plt
 import os
+import h5py
 
 import numpy as np
 import tensorflow as tf
+from util import load_mnist, onehot
+from model import conv2d_bn, build_generator, build_generator_incep
 
-def load_mnist():
-    (xtrain, ytrain), (xtest, ytest) = mnist.load_data()
-    # pad to 32*32 and normalize to 0~1
-    xtrain = np.pad(xtrain, ((0,0),(2,2),(2,2)), 'constant') / 255
-    xtest = np.pad(xtest, ((0,0),(2,2),(2,2)), 'constant') / 255
-    # expand channel dim
-    xtrain, xtest = xtrain[:, :, :, np.newaxis], xtest[:, :, :, np.newaxis]
+def exclude(arr):
+    result = [ np.random.choice(list({0,1,2,3,4,5,6,7,8,9}-{digit}), 1)[0] for digit in arr ]
+    return np.array(result)
 
-    return xtrain, ytrain, xtest, ytest
+def build_discriminator():
+    # -----
+    # input: 32*32*1 image + target digit one hot
+    # output: 0 ~ 1
+    # -----
 
-def onehot(x, size):
-    result = np.zeros((x.size, size))
-    result[np.arange(x.size), x] = 1
-    return result
+    img_input = Input(shape=(32, 32, 1))
+    digit_input = Input(shape=(10,))
+
+    x = Conv2D(16, (3,3), padding='same')(img_input)
+    x = BatchNormalization(momentum=0.8)(x)
+    x = MaxPooling2D((2,2))(x) # 16,16
+    x = LeakyReLU(alpha=0.1)(x)
+
+    x = Conv2D(32, (3,3), padding='same')(x)
+    x = BatchNormalization(momentum=0.8)(x)
+    x = MaxPooling2D((2,2))(x) # 8, 8
+    x = LeakyReLU(alpha=0.1)(x)
+
+    x = Conv2D(64, (3,3), padding='same')(x)
+    x = BatchNormalization(momentum=0.8)(x)
+    x = MaxPooling2D((2,2))(x) # 4, 4
+    x = LeakyReLU(alpha=0.1)(x)
+
+    x = Conv2D(128, (3,3), padding='same')(x)
+    x = BatchNormalization(momentum=0.8)(x)
+    x = MaxPooling2D((2,2))(x) # 2, 2
+    x = LeakyReLU(alpha=0.1)(x)
+    x = Flatten()(x)
+
+    x = Concatenate()([x, digit_input])
+    x = LeakyReLU(alpha=0.1)(x)
+    x = Dense(128)(x)
+    x = LeakyReLU(alpha=0.1)(x)
+    x = Dense(64)(x)
+    x = LeakyReLU(alpha=0.1)(x)
+    x = Dense(32)(x)
+    x = LeakyReLU(alpha=0.1)(x)
+    x = Dense(16)(x)
+    out = Dense(1)(x) # no activation for wgan
+
+    model = Model([img_input, digit_input], out, name='D')
+
+    return model
 
 class WGAN():
-    def __init__(self):
+    def __init__(self, model_name=None):
 
         self.imgs, self.digits, self.test_imgs, self.test_digits = load_mnist()
         self.img_rows, self.img_cols, self.channels = self.imgs.shape[1:]
         self.img_shape = (self.img_rows, self.img_cols, self.channels)
         self.loss_func = self.wasserstein_loss
-        self.clip = 0.01
+        self.clip_value = 0.01
 
         optimizer_D = RMSprop(lr=0.00005)
         optimizer_G = RMSprop(lr=0.00005)
 
-        self.D = self.build_discriminator()
+        self.D = build_discriminator()
         self.D.compile(loss=self.loss_func,
             optimizer=optimizer_D,
-            metrics=['accuracy'])
+            metrics=[metrics.binary_accuracy])
         self.D.summary()
-        self.G, self.G_mask = self.build_generator()
+        self.G, self.G_mask = build_generator_incep()
 
         img_input = Input(shape=self.img_shape)
         digit_input = Input(shape=(10,))
@@ -61,9 +97,9 @@ class WGAN():
         self.D.trainable = False
         D_output = self.D([img_added, digit_input])
         self.combined = Model([img_input, digit_input], D_output)
-        self.combined.compile(loss=self.loss_func, 
+        self.combined.compile(loss=self.loss_func,
             optimizer=optimizer_G,
-            metrics=['accuracy'])
+            metrics=[metrics.binary_accuracy])
         self.combined.summary()
 
         self.tb = keras.callbacks.TensorBoard(
@@ -78,138 +114,13 @@ class WGAN():
     def wasserstein_loss(self, y_true, y_pred):
         return K.mean(y_true * y_pred)
 
-    def build_generator(self):
-        # -----
-        # input: 32*32*1 image (0~1) + target digit one hot
-        # output: 32*32*1 generated image (-1~1)
-        # -----
-
-        img_input = Input(shape=(32, 32, 1))
-        digit_input = Input(shape=(10,))
-
-        x = Conv2D(16, (3,3), padding='same')(img_input)
-        x = BatchNormalization(momentum=0.8)(x)
-        x = MaxPooling2D((2,2))(x) # 16,16
-        x1 = LeakyReLU(alpha=0.1)(x)
-
-        x = Conv2D(32, (3,3), padding='same')(x1)
-        x = BatchNormalization(momentum=0.8)(x)
-        x = MaxPooling2D((2,2))(x) # 8, 8
-        x2 = LeakyReLU(alpha=0.1)(x)
-
-        x = Conv2D(64, (3,3), padding='same')(x2)
-        x = BatchNormalization(momentum=0.8)(x)
-        x = MaxPooling2D((2,2))(x) # 4, 4
-        x3 = LeakyReLU(alpha=0.1)(x)
-
-        x = Conv2D(64, (3,3), padding='same')(x3)
-        x = BatchNormalization(momentum=0.8)(x)
-        x = MaxPooling2D((2,2))(x) # 2, 2
-        x4 = LeakyReLU(alpha=0.1)(x)
-        # x = Conv2D(64, (2, 2), padding='valid')
-        # x = BatchNormalization(momentum=0.8)(x)
-        x = Flatten()(x4)
-
-        x = Concatenate()([x, digit_input])
-        x = LeakyReLU(alpha=0.1)(x)
-        x = Dense(128)(x)
-        x = BatchNormalization(momentum=0.8)(x)
-        x = LeakyReLU(alpha=0.1)(x)
-        x = Dense(64)(x)
-        x = BatchNormalization(momentum=0.8)(x)
-        x = LeakyReLU(alpha=0.1)(x)
-        x = Dense(2*2*64)(x)
-        x = BatchNormalization(momentum=0.8)(x)
-        x = LeakyReLU(alpha=0.1)(x)
-
-        x = Reshape((2, 2, 64))(x)
-        x = Concatenate()([x, x4])
-        x = UpSampling2D((2,2))(x) # 4, 4
-
-        x = Conv2D(64, (3,3), padding='same')(x)
-        x = BatchNormalization(momentum=0.8)(x)
-        x = LeakyReLU(alpha=0.1)(x)
-        x = Concatenate()([x, x3])
-        x = UpSampling2D((2,2))(x) # 8, 8
-
-        x = Conv2D(32, (3,3), padding='same')(x)
-        x = BatchNormalization(momentum=0.8)(x)
-        x = LeakyReLU(alpha=0.1)(x)
-        x = Concatenate()([x, x2])
-        x = UpSampling2D((2,2))(x) # 16, 16
-
-        x = Conv2D(16, (3,3), padding='same')(x)
-        x = BatchNormalization(momentum=0.8)(x)
-        x = LeakyReLU(alpha=0.1)(x)
-        x = Concatenate()([x, x1])
-        x = UpSampling2D((2,2))(x) # 32, 32
-
-        mask = Conv2D(1, (3,3), padding='same', activation='tanh')(x)
-
-        mask = Lambda(lambda x: (x + 1) * 0.5)(mask)
-        img_added = Add()([img_input, mask])
-        img_added = Lambda(lambda x: clip(x, 0, 1))(img_added)
-
-        model = Model([img_input, digit_input], img_added, name='G')
-        model_mask = Model([img_input, digit_input], mask, name='G')
-
-        return model, model_mask
-
-
-    def build_discriminator(self):
-        # -----
-        # input: 32*32*1 image + target digit one hot
-        # output: 0 ~ 1
-        # -----
-
-        img_input = Input(shape=(32, 32, 1))
-        digit_input = Input(shape=(10,))
-
-        x = Conv2D(16, (3,3), padding='same')(img_input)
-        x = BatchNormalization(momentum=0.8)(x)
-        x = MaxPooling2D((2,2))(x) # 16,16
-        x = LeakyReLU(alpha=0.1)(x)
-
-        x = Conv2D(32, (3,3), padding='same')(x)
-        x = BatchNormalization(momentum=0.8)(x)
-        x = MaxPooling2D((2,2))(x) # 8, 8
-        x = LeakyReLU(alpha=0.1)(x)
-
-        x = Conv2D(64, (3,3), padding='same')(x)
-        x = BatchNormalization(momentum=0.8)(x)
-        x = MaxPooling2D((2,2))(x) # 4, 4
-        x = LeakyReLU(alpha=0.1)(x)
-
-        x = Conv2D(128, (3,3), padding='same')(x)
-        x = BatchNormalization(momentum=0.8)(x)
-        x = MaxPooling2D((2,2))(x) # 2, 2
-        x = LeakyReLU(alpha=0.1)(x)
-        x = Flatten()(x)
-
-        x = Concatenate()([x, digit_input])
-        x = LeakyReLU(alpha=0.1)(x)
-        x = Dense(128)(x)
-        x = LeakyReLU(alpha=0.1)(x)
-        x = Dense(64)(x)
-        x = LeakyReLU(alpha=0.1)(x)
-        x = Dense(32)(x)
-        x = LeakyReLU(alpha=0.1)(x)
-        x = Dense(16)(x)
-        out = Dense(1)(x)
-
-        model = Model([img_input, digit_input], out, name='D')
-
-        return model
-
-
-    def train(self, iterations, batch_size=128, sample_interval=100,
-                            train_D_iters=1, train_G_iters=1, img_dir='./imgs'):
+    def train(self, iterations, batch_size=128, sample_interval=100, save_model_interval=100,
+                            train_D_iters=1, train_G_iters=1, img_dir='./imgs', model_dir='./models'):
 
         imgs, digits = self.imgs, self.digits
-        imgs = (imgs.astype(np.float32) - .5) * 2
 
-        valid = -np.ones((batch_size, 1))
-        fake = np.ones((batch_size, 1)) # fake = 1, true = -1
+        valid = np.ones((batch_size, 1))
+        fake = -np.ones((batch_size, 1))
 
         for itr in range(1, iterations + 1):
 
@@ -221,26 +132,28 @@ class WGAN():
                 idx_real = np.random.randint(0, imgs.shape[0], batch_size)
                 idx_fake = np.random.randint(0, imgs.shape[0], batch_size)
                 random_target_digits = onehot( np.random.randint(0, 10, batch_size), 10 )
-
+                unmatch_digits = onehot( exclude(digits[idx_real]), 10 )
                 real_imgs, real_digits = imgs[idx_real], onehot( digits[idx_real], 10 )
                 fake_imgs = self.G.predict([imgs[idx_fake], random_target_digits])
 
-                # d_loss_real = [loss, acc]
+                # real image and correct digit
                 d_loss_real = self.D.train_on_batch([real_imgs, real_digits], valid)
+                # fake image and random digit
                 d_loss_fake = self.D.train_on_batch([fake_imgs, random_target_digits], fake)
+                # real image but wrong digit
+                d_loss_fake2 = self.D.train_on_batch([real_imgs, unmatch_digits], fake)
 
-                # Clip D weights
+                # Clip critic weights
                 for l in self.D.layers:
                     weights = l.get_weights()
-                    weights = [np.clip(w, -self.clip, self.clip) for w in weights]
+                    weights = [np.clip(w, -self.clip_value, self.clip_value) for w in weights]
                     l.set_weights(weights)
-
-            d_loss = 0.5 * np.add(d_loss_real, d_loss_fake)
 
             # tensorboard
             logs = {
                 'D_loss_real': d_loss_real[0],
-                'D_loss_fake': d_loss_fake[0]
+                'D_loss_fake': d_loss_fake[0],
+                'D_loss_fake2': d_loss_fake2[0]
             }
             self.tb.on_epoch_end(itr, logs)
 
@@ -265,29 +178,42 @@ class WGAN():
             if sample_interval > 0 and itr % sample_interval == 0:
                 self.sample_imgs(itr, img_dir)
 
+            if save_model_interval > 0 and itr % save_model_interval == 0:
+                if not os.path.isdir(model_dir):
+                    os.makedirs(model_dir)
+                self.D.save(os.path.join(model_dir, f'D{itr}.hdf5'))
+                self.G.save(os.path.join(model_dir, f'G{itr}.hdf5'))
+                self.G_mask.save(os.path.join(model_dir, f'G_mask{itr}.hdf5'))
+
             # Plot the progress
             print(f'{itr} [G loss: {g_loss[0]} | acc: {g_loss[1]}]')
             print(f'{itr} [D real: {d_loss_real[0]} | acc: {d_loss_real[1]}]')
             print(f'{itr} [D fake: {d_loss_fake[0]} | acc: {d_loss_fake[1]}]')
+            print(f'{itr} [D fake2: {d_loss_fake2[0]} | acc: {d_loss_fake2[1]}]')
+            print()
 
         self.tb.on_train_end(None)
 
-
     def sample_imgs(self, itr, img_dir):
         n = 5
-        targets = onehot(np.array([4] * n), 10)
+        targets = onehot( np.full((n, 1), 4), 10 )
+        test_imgs = self.test_imgs[:n]
 
-        gen_imgs = self.G.predict([self.test_imgs[:n], targets])
-        # gen_imgs = self.test_imgs[:n] + (gen_imgs + 1) * 0.5
-        # # Rescale images 0 - 1
-        # gen_imgs = np.clip(gen_imgs, 0, 1)
+        gen_imgs = self.G.predict([test_imgs, targets])
+        masks = self.G_mask.predict([test_imgs, targets])
+        D_pred_T = self.D.predict([test_imgs, targets])
+        D_pred_F = self.D.predict([gen_imgs, targets])
 
-        fig, axs = plt.subplots(n, 2)
+        fig, axs = plt.subplots(n, 3, figsize=(8, 6))
+        fig.tight_layout()
         for i in range(n):
-            axs[i, 0].imshow(self.test_imgs[i,:,:,0], cmap='gray')
-            axs[i, 0].axis('off')
-            axs[i, 1].imshow(gen_imgs[i,:,:,0], cmap='gray')
-            axs[i, 1].axis('off')
+            for no, img in enumerate([test_imgs, masks, gen_imgs]):
+                axs[i, no].imshow(img[i, :, :, 0], cmap='gray')
+                axs[i, no].axis('off')
+                if 0 == no:
+                    axs[i, no].text(-20, -2, f'D_pred_T: {D_pred_T[i]}')
+                elif 2 == no:
+                    axs[i, no].text(-20, -2, f'D_pred_F: {D_pred_F[i]}')
         if not os.path.isdir(img_dir):
             os.makedirs(img_dir)
         fig.savefig(os.path.join(img_dir, f'{itr}.png'))
@@ -296,11 +222,15 @@ class WGAN():
 
 if __name__ == '__main__':
 
+
     model = WGAN()
-    model.train(iterations=10000,
+    model.train(
+            iterations=50000,
             batch_size=128,
-            sample_interval=500,
-            train_D_iters=5,
+            sample_interval=2000,
+            save_model_interval=2000,
+            train_D_iters=1,
             train_G_iters=1,
-            img_dir='./imgs/wgan_G1_D5')
+            img_dir=f'./output/wgan_G1D1/imgs/',
+            model_dir=f'./output/wgan_G1D1/models/')
 
