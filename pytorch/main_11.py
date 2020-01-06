@@ -104,11 +104,11 @@ class Discriminator(nn.Module):
         self.down3 = encoder_block(64,4) #(4,4,4)
         self.linear0 = nn.Linear(4*4*4, 16)
         self.linear1 = nn.Linear(4*4 + 10, 16) #concat with the one-hot condition
-        self.linear2 = nn.Linear(16,4)
-        self.linear3 = nn.Linear(4,2) #(fake?, rightnumber?)
+        self.linear2 = nn.Linear(16,16)
+        self.linear3 = nn.Linear(16,11) 
         self.Bn1 = nn.BatchNorm1d(26)
         self.Bn2 = nn.BatchNorm1d(16)
-        self.Bn3 = nn.BatchNorm1d(4)
+        self.Bn3 = nn.BatchNorm1d(11)
     def forward(self, x, c):
         x = self.down1(x)
         x = self.down2(x)
@@ -123,7 +123,7 @@ class Discriminator(nn.Module):
         x = self.linear2(F.relu(x))
         x = self.Bn3(x)
         x = self.linear3(F.relu(x))
-        x = nn.Sigmoid()(x) 
+        x = nn.Softmax(dim=1)(x) 
         return x
 
 class Dataset():
@@ -174,26 +174,23 @@ def train(iterations=10000, batch_size=128, sample_interval=5, save_model_interv
             for step, (batch_x, batch_y) in enumerate(loader):
                 batch_x = torch.transpose(batch_x,1,3)
                 batch_x = torch.transpose(batch_x,2,3)
-                batch_y = batch_y
                 match_c = onehot(batch_y, 10)
                 unmatch_c = onehot(batch_y, 10, exclusive=True)
                 noise = torch.randn(batch_x.size(0),8 ,device=device)
 
                 fake_x = generator(batch_x.float().to(device), unmatch_c.float().to(device), noise)
                 real_x = batch_x
-                valid_real, valid_num, valid, fake = target_generator(batch_x.size(0), device)
-                
+                #valid_real, valid_num, valid, fake = target_generator(batch_x.size(0), device)
+                fake = torch.zeros(batch_x.size(0),11)
+                fake[:,10] = 1
+                valid = unmatch_c
                 optimizer_D.zero_grad()
 
-                real_match_pred = discriminator(real_x.float().to(device), match_c.float().to(device))
-                real_unmatch_pred = discriminator(real_x.float().to(device),unmatch_c.float().to(device))
-                fake_match_pred = discriminator(fake_x.float().to(device), unmatch_c.float().to(device))
-                fake_unmatch_pred = discriminator(fake_x.float().to(device), match_c.float().to(device))
-                loss1 = loss_fn(real_match_pred, valid)
-                loss2 = loss_fn(real_unmatch_pred, valid_real)
-                loss3 = loss_fn(fake_match_pred, valid_num)
-                loss4 = loss_fn(fake_unmatch_pred, fake)
-                loss = loss1*3 + loss2*0.5 + loss3*0.5 + loss4 *4
+                real_pred = discriminator(real_x.float().to(device), match_c.float().to(device))
+                fake_pred = discriminator(fake_x.float().to(device), unmatch_c.float().to(device))
+                loss1 = loss_fn(real_pred, valid)
+                loss2 = loss_fn(fake_pred, fake)
+                loss = loss1*0.9 + loss2*0.1
                 loss.backward()
                 optimizer_D.step()
                 D_real_acc += real_match_pred.cpu().detach().mean(dim=0)
@@ -230,9 +227,9 @@ def train(iterations=10000, batch_size=128, sample_interval=5, save_model_interv
                 pred = pred.cpu().detach()
                 G_loss += loss.item()           
                 G_acc += pred.float().mean(dim=0)
-        G_loss /= (len(loader)*train_G_iters)
-        G_acc /= (len(loader)*train_G_iters)
-        print(f"iter: {iters} | G_loss: {G_loss} | G_accuracy: {G_acc.detach().numpy()}")
+            G_loss /= (len(loader) )
+            G_acc /= (len(loader) )
+            print(f"iter: {iters}.{G_iters} | G_loss: {G_loss} | G_accuracy: {G_acc.detach().numpy()}")
 
 
         if iters % sample_interval == 0 :
@@ -262,27 +259,22 @@ def train(iterations=10000, batch_size=128, sample_interval=5, save_model_interv
                 os.makedirs(img_dir)
             fig.savefig(os.path.join(img_dir, f'{iters}.png'))
             plt.close()
-        
-        if iters % save_model_interval == 0 :
-            if not os.path.isdir(model_dir):
-                os.makedirs(model_dir)
-            torch.save(generator, os.path.join(model_dir, f'{iters}.pkl'))
                 
 
             
 
 if __name__ == "__main__":
     train(
-        iterations=20000, 
+        iterations=10000, 
         batch_size=128, 
-        sample_interval=10, 
-        save_model_interval=200,
-        train_D_iters=1, 
-        train_G_iters=2, 
+        sample_interval=2, 
+        save_model_interval=100,
+        train_D_iters=3, 
+        train_G_iters=1, 
         D_lr=0.0001, 
-        G_lr=0.00005,
-        img_dir='./imgs', 
-        model_dir='./models'
+        G_lr=0.00001,
+        img_dir='./11_imgs', 
+        model_dir='./11_models'
     )
 
 

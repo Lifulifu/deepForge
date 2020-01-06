@@ -5,3 +5,5 @@ logs/
 models/
 *.png
 outputs/
+pytorch/imgs/
+pytorch/models/
