@@ -117,7 +117,7 @@ def build_generator():# {{{
     return model, model_mask
 # }}}
 
-def build_generator_incep():
+def build_generator_incep():# {{{
     # -----
     # input: 32*32*1 image (0~1) + target digit one hot
     # output: 32*32*1 generated image (-1~1)
@@ -186,7 +186,7 @@ def build_generator_incep():
     model_mask = Model([img_input, digit_input], mask, name='G_mask')
 
     return model, model_mask
-
+# }}}
 
 def conv2d_bn(x, filters,
               kernel_size,
