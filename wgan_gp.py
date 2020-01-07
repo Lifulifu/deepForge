@@ -13,6 +13,8 @@ from keras.backend import clip
 from keras.models import Sequential, Model
 from keras.optimizers import Adam, RMSprop
 from keras import metrics
+from keras.layers.merge import _Merge
+from functools import partial
 
 import matplotlib.pyplot as plt
 import os
@@ -20,6 +22,12 @@ import sys
 
 import numpy as np
 import tensorflow as tf
+
+GRADIENT_PENALTY_WEIGHT = 10
+
+def exclude(arr):
+    result = [ np.random.choice(list({0,1,2,3,4,5,6,7,8,9}-{digit}), 1)[0] for digit in arr ]
+    return np.array(result)
 
 def load_mnist():
     (xtrain, ytrain), (xtest, ytest) = mnist.load_data()
@@ -36,10 +44,41 @@ def onehot(x, size):
     result[np.arange(x.size), x] = 1
     return result
 
+def wasserstein_loss(y_true, y_pred):
+    return K.mean(y_true * y_pred)
+
+def gradient_penalty_loss(y_true, y_pred, averaged_samples,
+                          gradient_penalty_weight):
+    # first get the gradients:
+    #   assuming: - that y_pred has dimensions (batch_size, 1)
+    #             - averaged_samples has dimensions (batch_size, nbr_features)
+    # gradients afterwards has dimension (batch_size, nbr_features), basically
+    # a list of nbr_features-dimensional gradient vectors
+    gradients = K.gradients(y_pred, averaged_samples)[0]
+    # compute the euclidean norm by squaring ...
+    gradients_sqr = K.square(gradients)
+    #   ... summing over the rows ...
+    gradients_sqr_sum = K.sum(gradients_sqr,
+                              axis=np.arange(1, len(gradients_sqr.shape)))
+    #   ... and sqrt
+    gradient_l2_norm = K.sqrt(gradients_sqr_sum)
+    # compute lambda * (1 - ||grad||)^2 still for each single sample
+    gradient_penalty = gradient_penalty_weight * K.square(1 - gradient_l2_norm)
+    # return the mean as loss over all the batch samples
+    return K.mean(gradient_penalty)
+
+def tile_images(image_stack):
+    """Given a stacked tensor of images, reshapes them into a horizontal tiling for
+    display."""
+    assert len(image_stack.shape) == 3
+    image_list = [image_stack[i, :, :] for i in range(image_stack.shape[0])]
+    tiled_images = np.concatenate(image_list, axis=1)
+    return tiled_images
+
 class RandomWeightedAverage(_Merge):
     """Provides a (random) weighted average between real and generated image samples"""
     def _merge_function(self, inputs):
-        alpha = K.random_uniform((32, 1, 1, 1))
+        alpha = K.random_uniform((128, 1, 1, 1))
         return (alpha * inputs[0]) + ((1 - alpha) * inputs[1])
 
 class WGANGP():
@@ -54,22 +93,56 @@ class WGANGP():
         optimizer_D = RMSprop(lr=0.00005)
         optimizer_G = RMSprop(lr=0.00005)
 
-        self.D = self.build_discriminator()
-        self.D.compile(loss= loss_func,
-            optimizer=optimizer_D,
-            metrics=[metrics.binary_accuracy])
-        self.D.summary()
-        self.G, self.G_mask = self.build_generator()
+        discriminator = self.build_discriminator()
+        generator, mask_generator = self.build_generator()
 
-        img_input = Input(shape=self.img_shape)
+        ## generator{{{
+        for layer in discriminator.layers:
+            layer.trainable = False
+        discriminator.trainable = False
+        G_img_input = Input(shape=self.img_shape)
+        G_digit_input = Input(shape=(10,))
+        img_added = generator([G_img_input, G_digit_input])
+        discriminator_for_generator = discriminator([img_added, G_digit_input])
+        self.G = Model(inputs=[G_img_input, G_digit_input],
+                       outputs=[discriminator_for_generator])
+        self.G.compile(optimizer=Adam(0.0001, beta_1=0.5, beta_2=0.9),
+                       loss=wasserstein_loss)
+        self.G.summary()
+        # }}}
+
+        ## discriminator{{{
+        for layer in discriminator.layers:
+            layer.trainable = True
+        for layer in generator.layers:
+            layer.trainable = False
+        discriminator.trainable = True
+        generator.trainable = False
+
+        real_input = Input(shape=self.img_shape)
         digit_input = Input(shape=(10,))
-        img_added = self.G([img_input, digit_input])
+        fake_samples = generator([real_input, digit_input])
+        discriminator_output_from_real = discriminator([real_input, digit_input])
+        discriminator_output_from_fake = discriminator([fake_samples, digit_input])
 
-        self.D.trainable = False
-        D_output = self.D([img_added, digit_input])
-        self.combined = Model([img_input, digit_input], D_output)
-        self.combined.compile(loss=loss_func, optimizer=optimizer_G)
-        self.combined.summary()
+        averaged_samples = RandomWeightedAverage()([real_input, fake_samples])
+        discriminator_output_from_average = discriminator([averaged_samples, digit_input])
+
+        partial_gp_loss = partial(gradient_penalty_loss,
+                                  averaged_samples=averaged_samples,
+                                  gradient_penalty_weight=GRADIENT_PENALTY_WEIGHT)
+        partial_gp_loss.__name__ = 'gradient_penalty'
+
+        self.D = Model(inputs=[real_input, digit_input],
+                       outputs=[discriminator_output_from_real,
+                                discriminator_output_from_fake,
+                                discriminator_output_from_average])
+        self.D.compile(optimizer=Adam(0.0001, beta_1=0.5, beta_2=0.9),
+                       loss=[wasserstein_loss,
+                             wasserstein_loss,
+                             partial_gp_loss])
+        self.D.summary()
+        # }}}
 
         self.tb = keras.callbacks.TensorBoard(
             log_dir='./logs',
@@ -78,10 +151,10 @@ class WGANGP():
             write_graph=True,
             write_grads=True
         )
-        self.tb.set_model(self.combined)
+        self.tb.set_model(self.G)
 
 
-    def build_generator(self):
+    def build_generator(self):# {{{
         # -----
         # input: 32*32*1 image (0~1) + target digit one hot
         # output: 32*32*1 generated image (-1~1)
@@ -157,9 +230,9 @@ class WGANGP():
         model_mask = Model([img_input, digit_input], mask, name='G')
 
         return model, model_mask
+# }}}
 
-
-    def build_discriminator(self):
+    def build_discriminator(self):# {{{
         # -----
         # input: 32*32*1 image + target digit one hot
         # output: 0 ~ 1
@@ -168,22 +241,22 @@ class WGANGP():
         img_input = Input(shape=(32, 32, 1))
         digit_input = Input(shape=(10,))
 
-        x = Conv2D(16, (3,3), padding='same')(img_input)
+        x = Conv2D(16, (3,3), kernel_initializer='he_normal', padding='same')(img_input)
         x = BatchNormalization(momentum=0.8)(x)
         x = MaxPooling2D((2,2))(x) # 16,16
         x = LeakyReLU(alpha=0.1)(x)
 
-        x = Conv2D(32, (3,3), padding='same')(x)
+        x = Conv2D(32, (3,3), kernel_initializer='he_normal', padding='same')(x)
         x = BatchNormalization(momentum=0.8)(x)
         x = MaxPooling2D((2,2))(x) # 8, 8
         x = LeakyReLU(alpha=0.1)(x)
 
-        x = Conv2D(64, (3,3), padding='same')(x)
+        x = Conv2D(64, (3,3), kernel_initializer='he_normal', padding='same')(x)
         x = BatchNormalization(momentum=0.8)(x)
         x = MaxPooling2D((2,2))(x) # 4, 4
         x = LeakyReLU(alpha=0.1)(x)
 
-        x = Conv2D(128, (3,3), padding='same')(x)
+        x = Conv2D(128, (3,3), kernel_initializer='he_normal', padding='same')(x)
         x = BatchNormalization(momentum=0.8)(x)
         x = MaxPooling2D((2,2))(x) # 2, 2
         x = LeakyReLU(alpha=0.1)(x)
@@ -191,19 +264,17 @@ class WGANGP():
 
         x = Concatenate()([x, digit_input])
         x = LeakyReLU(alpha=0.1)(x)
-        x = Dense(128)(x)
+        x = Dense(128, kernel_initializer='he_normal')(x)
         x = LeakyReLU(alpha=0.1)(x)
-        x = Dense(64)(x)
+        x = Dense(64, kernel_initializer='he_normal')(x)
         x = LeakyReLU(alpha=0.1)(x)
-        x = Dense(32)(x)
-        x = LeakyReLU(alpha=0.1)(x)
-        x = Dense(16)(x)
-        out = Dense(1, activation='sigmoid')(x)
+        x = Dense(16, kernel_initializer='he_normal')(x)
+        out = Dense(1, kernel_initializer='he_normal')(x)
 
         model = Model([img_input, digit_input], out, name='D')
 
         return model
-
+# }}}
 
     def train(self, iterations, batch_size=128, sample_interval=100,
                             train_D_iters=1, train_G_iters=1, img_dir='./imgs'):
@@ -212,8 +283,9 @@ class WGANGP():
         imgs, digits = self.imgs, self.digits
         imgs = (imgs.astype(np.float32) - .5) * 2
 
-        valid = np.ones((batch_size, 1))
-        fake = np.zeros((batch_size, 1))
+        valid = np.ones((batch_size, 1), dtype=np.float32)
+        fake = -valid
+        dummy = np.zeros((batch_size, 1), dtype=np.float32)
 
         for itr in range(1, iterations + 1):
 
@@ -222,23 +294,29 @@ class WGANGP():
             # ---------------------
             for _ in range(train_D_iters):
                 # Select a random half batch of images
-                idx_real = np.random.randint(0, imgs.shape[0], batch_size)
-                idx_fake = np.random.randint(0, imgs.shape[0], batch_size)
-                random_target_digits = onehot( np.random.randint(0, 10, batch_size), 10 )
+                idxs1 = np.random.randint(0, imgs.shape[0], batch_size)
+                idxs2 = np.random.randint(0, imgs.shape[0], batch_size)
+                match_digits = onehot( digits[idxs1], 10 )
+                unmatch_digits = onehot( exclude(digits[idxs2]), 10 )
 
-                real_imgs, real_digits = imgs[idx_real], onehot( digits[idx_real], 10 )
-                fake_imgs = self.G.predict([imgs[idx_fake], random_target_digits])
+                # matched
+                real_imgs_m, digits_m = imgs[idxs1], match_digits
+
+                # unmatched
+                real_imgs_u, digits_u = imgs[idxs2], unmatch_digits
 
                 # d_loss_real = [loss, acc]
-                d_loss_real = self.D.train_on_batch([real_imgs, real_digits], valid)
-                d_loss_fake = self.D.train_on_batch([fake_imgs, random_target_digits], fake)
+                d_loss_match = self.D.train_on_batch([real_imgs_m, digits_m],
+                                                     [valid, fake, dummy])
+                d_loss_unmatch = self.D.train_on_batch([real_imgs_u, digits_u],
+                                                       [fake, fake, dummy])
 
-            d_loss = 0.5 * np.add(d_loss_real, d_loss_fake)
+            d_loss = 0.5 * np.add(d_loss_match, d_loss_unmatch)
 
             # tensorboard
             logs = {
-                'D_loss_real': d_loss_real[0],
-                'D_loss_fake': d_loss_fake[0]
+                'D_loss_real': d_loss_match[0],
+                'D_loss_fake': d_loss_unmatch[0]
             }
             self.tb.on_epoch_end(itr, logs)
 
@@ -259,7 +337,7 @@ class WGANGP():
                 idx = np.random.randint(0, imgs.shape[0], batch_size)
                 random_target_digits = onehot( np.random.randint(0, 10, batch_size), 10 )
 
-                g_loss = self.combined.train_on_batch([imgs[idx], random_target_digits], valid)
+                g_loss = self.G.train_on_batch([imgs[idx], random_target_digits], valid)
 
                 # tensorboard
                 logs = {
@@ -274,8 +352,8 @@ class WGANGP():
 
             # Plot the progress
             print(f'{itr} [G loss: {g_loss}]')
-            print(f'{itr} [D real: {d_loss_real[0]} | {d_loss_real[1]}]')
-            print(f'{itr} [D fake: {d_loss_fake[0]} | {d_loss_fake[1]}]')
+            print(f'{itr} [D real: {d_loss_match[0]} | {d_loss_match[1]}]')
+            print(f'{itr} [D fake: {d_loss_unmatch[0]} | {d_loss_unmatch[1]}]')
 
         self.tb.on_train_end(None)
 
@@ -303,11 +381,11 @@ class WGANGP():
 
 if __name__ == '__main__':
 
-    model = CGAN()
+    model = WGANGP()
     model.train(iterations=10000,
             batch_size=128,
             sample_interval=100,
-            train_D_iters=2,
+            train_D_iters=5,
             train_G_iters=1,
-            img_dir='./imgs/08_adam_G1_D2')
+            img_dir='./outputs/wgangp')
 
