@@ -92,6 +92,46 @@ def build_discriminator_realness(): # {{{ Only detect trueness
     return model
 # }}}
 
+def build_discriminator_realness_gp(): # {{{ Only detect trueness
+    # -----
+    # input: 32*32*1 image + target digit one hot
+    # output: 0 ~ 1
+    # -----
+
+    img_input = Input(shape=(32, 32, 1))
+
+    x = Conv2D(16, (3,3), kernel_initializer='he_normal', padding='same')(img_input)
+    x = BatchNormalization(momentum=0.8)(x)
+    x = MaxPooling2D((2,2))(x) # 16,16
+    x = LeakyReLU(alpha=0.1)(x)
+
+    x = Conv2D(32, (3,3), kernel_initializer='he_normal', padding='same')(x)
+    x = BatchNormalization(momentum=0.8)(x)
+    x = MaxPooling2D((2,2))(x) # 8, 8
+    x = LeakyReLU(alpha=0.1)(x)
+
+    x = Conv2D(64, (3,3), kernel_initializer='he_normal', padding='same')(x)
+    x = BatchNormalization(momentum=0.8)(x)
+    x = MaxPooling2D((2,2))(x) # 4, 4
+    x = LeakyReLU(alpha=0.1)(x)
+
+    x = Conv2D(128, (3,3), kernel_initializer='he_normal', padding='same')(x)
+    x = BatchNormalization(momentum=0.8)(x)
+    x = MaxPooling2D((2,2))(x) # 2, 2
+    x = LeakyReLU(alpha=0.1)(x)
+    x = Flatten()(x)
+
+    x = Dense(32, kernel_initializer='he_normal')(x)
+    x = LeakyReLU(alpha=0.1)(x)
+    x = Dense(16, kernel_initializer='he_normal')(x)
+    x = LeakyReLU(alpha=0.1)(x)
+    out = Dense(1, kernel_initializer='he_normal')(x)
+
+    model = Model(img_input, out, name='D_real')
+
+    return model
+# }}}
+
 def build_discriminator_digit():# {{{ Only detect digit
     # -----
     # input: 32*32*1 image + target digit one hot
