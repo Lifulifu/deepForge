@@ -127,6 +127,51 @@ def build_discriminator_digit():# {{{ Only detect digit
     return model
 # }}}
 
+def build_discriminator_11_class():# {{{
+    # -----
+    # input: 32*32*1 image
+    # output: [0]~[9] + [Fake]
+    # -----
+
+    img_input = Input(shape=(32, 32, 1))
+
+    x = Conv2D(16, (3,3), padding='same')(img_input)
+    x = BatchNormalization(momentum=0.8)(x)
+    x = MaxPooling2D((2,2))(x) # 16,16
+    x = LeakyReLU(alpha=0.1)(x)
+
+    x = Conv2D(32, (3,3), padding='same')(x)
+    x = BatchNormalization(momentum=0.8)(x)
+    x = MaxPooling2D((2,2))(x) # 8, 8
+    x = LeakyReLU(alpha=0.1)(x)
+
+    x = Conv2D(64, (3,3), padding='same')(x)
+    x = BatchNormalization(momentum=0.8)(x)
+    x = MaxPooling2D((2,2))(x) # 4, 4
+    x = LeakyReLU(alpha=0.1)(x)
+
+    x = Conv2D(128, (3,3), padding='same')(x)
+    x = BatchNormalization(momentum=0.8)(x)
+    x = MaxPooling2D((2,2))(x) # 2, 2
+    x = LeakyReLU(alpha=0.1)(x)
+
+    x = Conv2D(128, (3,3), padding='same')(x)
+    x = BatchNormalization(momentum=0.8)(x)
+    x = LeakyReLU(alpha=0.1)(x)
+    x = Flatten()(x)
+
+    x = Dense(64)(x)
+    x = LeakyReLU(alpha=0.1)(x)
+    x = Dense(32)(x)
+    x = LeakyReLU(alpha=0.1)(x)
+    x = Dense(16)(x)
+    out = Dense(11, activation='softmax')(x)
+
+    model = Model(img_input, out)
+
+    return model
+# }}}
+
 def build_generator():# {{{
     # -----
     # input: 32*32*1 image (0~1) + target digit one hot
