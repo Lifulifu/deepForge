@@ -94,34 +94,34 @@ class WGANGP():
         optimizer_G = RMSprop(lr=0.00005)
 
         discriminator = self.build_discriminator()
-        generator, mask_generator = self.build_generator()
+        self.G, self.mask_G = self.build_generator()
 
-        ## generator{{{
+        ## generator {{{
         for layer in discriminator.layers:
             layer.trainable = False
         discriminator.trainable = False
         G_img_input = Input(shape=self.img_shape)
         G_digit_input = Input(shape=(10,))
-        img_added = generator([G_img_input, G_digit_input])
+        img_added = self.G([G_img_input, G_digit_input])
         discriminator_for_generator = discriminator([img_added, G_digit_input])
-        self.G = Model(inputs=[G_img_input, G_digit_input],
+        self.combined = Model(inputs=[G_img_input, G_digit_input],
                        outputs=[discriminator_for_generator])
-        self.G.compile(optimizer=Adam(0.0001, beta_1=0.5, beta_2=0.9),
+        self.combined.compile(optimizer=Adam(0.0001, beta_1=0.5, beta_2=0.9),
                        loss=wasserstein_loss)
-        self.G.summary()
+        self.combined.summary()
         # }}}
 
         ## discriminator{{{
         for layer in discriminator.layers:
             layer.trainable = True
-        for layer in generator.layers:
+        for layer in self.G.layers:
             layer.trainable = False
         discriminator.trainable = True
-        generator.trainable = False
+        self.G.trainable = False
 
         real_input = Input(shape=self.img_shape)
         digit_input = Input(shape=(10,))
-        fake_samples = generator([real_input, digit_input])
+        fake_samples = self.G([real_input, digit_input])
         discriminator_output_from_real = discriminator([real_input, digit_input])
         discriminator_output_from_fake = discriminator([fake_samples, digit_input])
 
@@ -151,7 +151,7 @@ class WGANGP():
             write_graph=True,
             write_grads=True
         )
-        self.tb.set_model(self.G)
+        self.tb.set_model(self.combined)
 
 
     def build_generator(self):# {{{
@@ -337,7 +337,7 @@ class WGANGP():
                 idx = np.random.randint(0, imgs.shape[0], batch_size)
                 random_target_digits = onehot( np.random.randint(0, 10, batch_size), 10 )
 
-                g_loss = self.G.train_on_batch([imgs[idx], random_target_digits], valid)
+                g_loss = self.combined.train_on_batch([imgs[idx], random_target_digits], valid)
 
                 # tensorboard
                 logs = {
@@ -362,7 +362,9 @@ class WGANGP():
         n = 5
         targets = onehot(np.array([4] * n), 10)
 
+        print(self.test_imgs.shape)
         gen_imgs = self.G.predict([self.test_imgs[:n], targets])
+        print(gen_imgs.shape)
         # gen_imgs = self.test_imgs[:n] + (gen_imgs + 1) * 0.5
         # # Rescale images 0 - 1
         # gen_imgs = np.clip(gen_imgs, 0, 1)
@@ -387,5 +389,5 @@ if __name__ == '__main__':
             sample_interval=100,
             train_D_iters=5,
             train_G_iters=1,
-            img_dir='./outputs/wgangp')
+            img_dir='./outputs/wgan_gp_testing')
 
