@@ -37,23 +37,28 @@ class GAN():
         optimizer_D = Adam(lr=0.0002)
         optimizer_G = Adam(lr=0.0002)
 
-        self.D_real = build_discriminator_realness()
-        self.D_real.compile(
+        self.D_realness = build_discriminator_realness()
+        self.D_realness.name = 'D_realness'
+        self.D_realness.compile(
             loss='binary_crossentropy',
             optimizer=optimizer_D,
             metrics=['binary_accuracy'])
 
         self.D_digit = load_model('outputs/D_digit.hdf5')
+        self.D_digit.name = 'D_digit'
+        self.D_digit.compile(
+            loss='categorical_crossentropy',
+            optimizer=optimizer_D,
+            metrics=['categorical_accuracy'])
         
         input_img = Input(shape=self.img_shape)
-        output_realness = self.D_real(input_img)
+        output_realness = self.D_realness(input_img)
         output_digit = self.D_digit(input_img)
-        self.D = Model(input_img, [output_realness, output_digit])
+        self.D = Model(input_img, [output_realness, output_digit], name='D')
         self.D.compile(
             loss=['binary_crossentropy', 'categorical_crossentropy'],
             loss_weights=loss_weight,
-            optimizer=optimizer_D,
-            metrics=['binary_accuracy', 'categorical_accuracy'])
+            optimizer=optimizer_D)
         self.D.summary()
 
         self.G, self.G_mask = build_generator()
@@ -64,22 +69,13 @@ class GAN():
 
         self.D.trainable = False
         D_output = self.D(img_added)
-        self.combined = Model([img_input, digit_input], D_output)
+        self.combined = Model([img_input, digit_input], D_output, name='combined')
         self.combined.compile(
             loss=['binary_crossentropy', 'categorical_crossentropy'],
-            loss_weights=[1, 1],
+            loss_weights=loss_weight,
             optimizer=optimizer_G,
-            metrics=['binary_accuracy', 'categorical_accuracy'])
+            metrics=['accuracy'])
         self.combined.summary()
-
-        self.tb = keras.callbacks.TensorBoard(
-            log_dir='./logs',
-            histogram_freq=0,
-            batch_size=64,
-            write_graph=True,
-            write_grads=True
-        )
-        self.tb.set_model(self.combined)
 
     def train(self, iterations, batch_size=128, sample_interval=100, save_model_interval=100,
                             train_D_iters=1, train_G_iters=1, img_dir='./', model_dir='./'):
@@ -95,7 +91,7 @@ class GAN():
         for itr in range(1, iterations + 1):
 
             # ---------------------
-            #  Train D_real
+            #  Train D_realness
             # ---------------------
             for _ in range(train_D_iters):
                 # Select a random half batch of images
@@ -108,9 +104,9 @@ class GAN():
                 fake_imgs = self.G.predict([imgs[idx_fake], fake_target_digits])
 
                 # real image 
-                d_loss_real = self.D_real.train_on_batch(real_imgs, valid)
+                d_loss_real = self.D_realness.train_on_batch(real_imgs, valid)
                 # fake image 
-                d_loss_fake = self.D_real.train_on_batch(fake_imgs, fake)
+                d_loss_fake = self.D_realness.train_on_batch(fake_imgs, fake)
 
             # ---------------------
             #  Train Generator
@@ -122,15 +118,16 @@ class GAN():
 
                 g_loss = self.combined.train_on_batch([imgs[idx], fake_target_digits], [valid, fake_target_digits])
 
+            print(f'--------\nEPOCH {itr}\n--------')
             print(pd.DataFrame({
-                'metrics': self.D_real.metrics_names,
+                'D_realness': self.D_realness.metrics_names,
                 'real': d_loss_real,
                 'fake': d_loss_fake
-            }))
+            }).to_string(index=False))
             print(pd.DataFrame({
-                'metrics': self.combined.metrics_names,
-                'loss': g_loss,
-            }))
+                'combined': self.combined.metrics_names,
+                'value': g_loss,
+            }).to_string(index=False))
             print()
 
             # If at save interval => save generated image samples
@@ -148,8 +145,8 @@ class GAN():
 
 if __name__ == '__main__':
 
-    ver_name = 'sep_1:5'
-    model = GAN(loss_weight=[1,5])
+    ver_name = 'sep_2:1'
+    model = GAN(loss_weight=[2,1])
     model.train(
             iterations=20000,
             batch_size=128,
