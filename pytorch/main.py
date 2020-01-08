@@ -193,7 +193,7 @@ def train(iterations=10000, batch_size=128, sample_interval=5, save_model_interv
                 loss2 = loss_fn(real_unmatch_pred, valid_real)
                 loss3 = loss_fn(fake_match_pred, valid_num)
                 loss4 = loss_fn(fake_unmatch_pred, fake)
-                loss = loss1*3 + loss2*0.5 + loss3*0.5 + loss4 *4
+                loss = loss1*0.75 + loss2*0.75 + loss3*0.5 + loss4 *1
                 loss.backward()
                 optimizer_D.step()
                 D_real_acc += real_match_pred.cpu().detach().mean(dim=0)
@@ -230,8 +230,8 @@ def train(iterations=10000, batch_size=128, sample_interval=5, save_model_interv
                 pred = pred.cpu().detach()
                 G_loss += loss.item()           
                 G_acc += pred.float().mean(dim=0)
-        G_loss /= (len(loader)*train_G_iters)
-        G_acc /= (len(loader)*train_G_iters)
+        G_loss /= (len(loader))
+        G_acc /= (len(loader))
         print(f"iter: {iters} | G_loss: {G_loss} | G_accuracy: {G_acc.detach().numpy()}")
 
 
@@ -278,9 +278,9 @@ if __name__ == "__main__":
         sample_interval=10, 
         save_model_interval=200,
         train_D_iters=1, 
-        train_G_iters=2, 
+        train_G_iters=1, 
         D_lr=0.0001, 
-        G_lr=0.00005,
+        G_lr=0.00001,
         img_dir='./imgs', 
         model_dir='./models'
     )

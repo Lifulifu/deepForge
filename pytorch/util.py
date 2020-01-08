@@ -10,7 +10,7 @@ def load_mnist():
     xtrain = np.pad(xtrain, ((0,0),(2,2),(2,2)), 'constant') / 255
     xtest = np.pad(xtest, ((0,0),(2,2),(2,2)), 'constant') / 255
     # expand channel dim
-    xtrain, xtest = xtrain[:, :, :, np.newaxis], xtest[:, :, :, np.newaxis]
+    xtrain, xtest = xtrain[:, np.newaxis, :, :, ], xtest[:, np.newaxis, :, :]
 
     return xtrain, ytrain, xtest, ytest
 
