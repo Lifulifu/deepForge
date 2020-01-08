@@ -53,6 +53,80 @@ def build_discriminator():# {{{
     return model
 # }}}
 
+def build_discriminator_realness(): # {{{ Only detect trueness
+    # -----
+    # input: 32*32*1 image + target digit one hot
+    # output: 0 ~ 1
+    # -----
+
+    img_input = Input(shape=(32, 32, 1))
+
+    x = Conv2D(16, (3,3), padding='same')(img_input)
+    x = BatchNormalization(momentum=0.8)(x)
+    x = MaxPooling2D((2,2))(x) # 16,16
+    x = LeakyReLU(alpha=0.1)(x)
+
+    x = Conv2D(32, (3,3), padding='same')(x)
+    x = BatchNormalization(momentum=0.8)(x)
+    x = MaxPooling2D((2,2))(x) # 8, 8
+    x = LeakyReLU(alpha=0.1)(x)
+
+    x = Conv2D(64, (3,3), padding='same')(x)
+    x = BatchNormalization(momentum=0.8)(x)
+    x = MaxPooling2D((2,2))(x) # 4, 4
+    x = LeakyReLU(alpha=0.1)(x)
+
+    x = Conv2D(128, (3,3), padding='same')(x)
+    x = BatchNormalization(momentum=0.8)(x)
+    x = MaxPooling2D((2,2))(x) # 2, 2
+    x = LeakyReLU(alpha=0.1)(x)
+    x = Flatten()(x)
+
+    x = Dense(32)(x)
+    x = LeakyReLU(alpha=0.1)(x)
+    x = Dense(16)(x)
+    out = Dense(1, activation='sigmoid')(x)
+
+    model = Model(img_input, out, name='D_real')
+
+    return model
+# }}}
+
+def build_discriminator_digit():# {{{ Only detect digit
+    # -----
+    # input: 32*32*1 image + target digit one hot
+    # output: 10 dim digit
+    # -----
+
+    img_input = Input(shape=(32, 32, 1))
+
+    x = Conv2D(16, (3,3), padding='same')(img_input)
+    x = BatchNormalization(momentum=0.8)(x)
+    x = MaxPooling2D((2,2))(x) # 16,16
+    x = LeakyReLU(alpha=0.1)(x)
+
+    x = Conv2D(32, (3,3), padding='same')(x)
+    x = BatchNormalization(momentum=0.8)(x)
+    x = MaxPooling2D((2,2))(x) # 8, 8
+    x = LeakyReLU(alpha=0.1)(x)
+
+    x = Conv2D(64, (3,3), padding='same')(x)
+    x = BatchNormalization(momentum=0.8)(x)
+    x = MaxPooling2D((2,2))(x) # 4, 4
+    x = LeakyReLU(alpha=0.1)(x)
+    x = Flatten()(x)
+
+    x = Dense(32)(x)
+    x = LeakyReLU(alpha=0.1)(x)
+    x = Dense(16)(x)
+    x = LeakyReLU(alpha=0.1)(x)
+    out = Dense(10, activation='softmax')(x)
+
+    model = Model(img_input, out, name='D_digit')
+
+    return model
+# }}}
+
 def build_generator():# {{{
     # -----
     # input: 32*32*1 image (0~1) + target digit one hot
