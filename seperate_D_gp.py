@@ -74,17 +74,8 @@ class GAN():
         D_real = build_discriminator_realness()
         D_digit = load_model('outputs/D_digit.hdf5')
 
-        img_input = Input(shape=self.img_shape)
-        digit_input = Input(shape=(10,))
-        output_realness = D_real(img_input)
-        output_digit = D_digit(img_input)
-        D_combined = Model(img_input, [output_realness, output_digit])
-
         ## generator
         # fix D
-        for layer in D_combined.layers:
-            layer.trainable = False
-        D_combined_trainable = False
         for layer in D_real.layers:
             layer.trainable = False
         D_real.trainable = False
@@ -92,12 +83,20 @@ class GAN():
             layer.trainable = False
         D_digit.trainable = False
 
-        img_added = self.G([img_input, digit_input])
+        img_input = Input(shape=self.img_shape)
+        digit_input = Input(shape=(10,))
+        output_realness = D_real(img_input)
+        output_digit = D_digit(img_input)
+        D_combined = Model(img_input, [output_realness, output_digit])
+
+        G_img_input = Input(shape=self.img_shape)
+        G_digit_input = Input(shape=(10,))
+        img_added = self.G([G_img_input, G_digit_input])
         D_output = D_combined(img_added)
-        self.G_combined = Model([img_input, digit_input], D_output)
+        self.G_combined = Model([G_img_input, G_digit_input], D_output)
         self.G_combined.compile(
             loss=[wasserstein_loss, 'categorical_crossentropy'],
-            loss_weights=[1, 1],
+            loss_weights=[10, 1],
             optimizer=optimizer_G,
             metrics=[wasserstein_loss, 'categorical_accuracy'])
         self.G_combined.summary()
@@ -105,9 +104,6 @@ class GAN():
 
         ## discriminator
         # fix G
-        for layer in D_combined.layers:
-            layer.trainable = True
-        D_combined_trainable = True
         for layer in D_real.layers:
             layer.trainable = True
         D_real.trainable = True
@@ -118,16 +114,18 @@ class GAN():
             layer.trainable = False
         self.G.trainable = False
 
-        gen_input = self.G([img_input, digit_input])
-        d_for_real = D_real(img_input)
+        D_img_input = Input(shape=self.img_shape)
+        D_digit_input = Input(shape=(10,))
+        gen_input = self.G([D_img_input, D_digit_input])
+        d_for_real = D_real(D_img_input)
         d_for_gen = D_real(gen_input)
-        avg_input = RandomWeightedAverage()([img_input, gen_input])
+        avg_input = RandomWeightedAverage()([D_img_input, gen_input])
         d_for_avg = D_real(avg_input)
         partial_gp_loss = partial(gradient_penalty_loss,
                                   averaged_samples=avg_input,
                                   gradient_penalty_weight=GRADIENT_PENALTY_WEIGHT)
         partial_gp_loss.__name__ = 'gradient_penalty'
-        self.D_combined = Model(inputs=[img_input, digit_input],
+        self.D_combined = Model(inputs=[D_img_input, D_digit_input],
                                 outputs=[d_for_real, d_for_gen, d_for_avg])
 
         self.D_combined.compile(
@@ -135,8 +133,7 @@ class GAN():
                   wasserstein_loss,
                   partial_gp_loss],
             optimizer=optimizer_D,
-            metrics=[wasserstein_loss,
-                     wasserstein_loss])
+            metrics=[wasserstein_loss])
         self.D_combined.summary()
 
         self.tb = keras.callbacks.TensorBoard(
