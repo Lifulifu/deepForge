@@ -44,7 +44,7 @@ class GAN():
             metrics=['binary_accuracy'])
 
         self.D_digit = load_model('outputs/D_digit.hdf5')
-        
+
         input_img = Input(shape=self.img_shape)
         output_realness = self.D_real(input_img)
         output_digit = self.D_digit(input_img)
@@ -107,9 +107,9 @@ class GAN():
                 real_digits = onehot( digits[idx_real], 10 )
                 fake_imgs = self.G.predict([imgs[idx_fake], fake_target_digits])
 
-                # real image 
+                # real image
                 d_loss_real = self.D_real.train_on_batch(real_imgs, valid)
-                # fake image 
+                # fake image
                 d_loss_fake = self.D_real.train_on_batch(fake_imgs, fake)
 
             # ---------------------
