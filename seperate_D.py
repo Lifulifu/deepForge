@@ -50,7 +50,7 @@ class GAN():
             loss='categorical_crossentropy',
             optimizer=optimizer_D,
             metrics=['categorical_accuracy'])
-        
+
         input_img = Input(shape=self.img_shape)
         output_realness = self.D_realness(input_img)
         output_digit = self.D_digit(input_img)

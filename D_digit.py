@@ -12,7 +12,7 @@ model.compile(
             loss='categorical_crossentropy',
             optimizer=Adam(lr=0.0002),
             metrics=['accuracy'])
-earlystopping = EarlyStopping(monitor='val_accuracy', mode='max', patience=50)
+earlystopping = EarlyStopping(monitor='val_accuracy', mode='max', patience=10)
 checkpoint = ModelCheckpoint('outputs/D_digit.hdf5', monitor='val_accuracy')
 model.fit(xtr, ytr, 
     epochs=2000,

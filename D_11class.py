@@ -139,4 +139,6 @@ if __name__ == '__main__':
             save_model_interval=1000,
             train_G_iters=4,
             train_D_iters=1,
-            img_dir=f'./outputs/{ver_
+            img_dir=f'./outputs/{ver_name}/imgs',
+            model_dir=f'./outputs/{ver_name}/models')
+
