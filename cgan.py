@@ -19,7 +19,7 @@ import h5py
 
 import numpy as np
 import tensorflow as tf
-from util import load_mnist, onehot
+from util import load_mnist, onehot, plot_table
 from model import build_discriminator, build_generator, build_generator_incep
 
 def exclude(arr):
@@ -66,15 +66,6 @@ class CGAN():
         )
         self.tb.set_model(self.combined)
 
-        #
-        # w1 = self.G.get_weights()
-        # self.G = load_model(model_name)
-        # w2 = self.G.get_weights()
-        # res = np.sum([np.array_equal(w1[i], w1[i]) for i in range(len(w1))])
-        # print(res)
-        #
-        # exit()
-
     def train(self, iterations, batch_size=128, sample_interval=100, save_model_interval=100,
                             train_D_iters=1, train_G_iters=1, img_dir='./', model_dir='./'):
 
@@ -82,6 +73,9 @@ class CGAN():
 
         valid = np.ones((batch_size, 1))
         fake = np.zeros((batch_size, 1))
+
+        os.makedirs(img_dir, exist_ok=True)
+        os.makedirs(model_dir, exist_ok=True)
 
         for itr in range(1, iterations + 1):
 
@@ -94,7 +88,8 @@ class CGAN():
                 idx_fake = np.random.randint(0, imgs.shape[0], batch_size)
                 random_target_digits = onehot( np.random.randint(0, 10, batch_size), 10 )
                 unmatch_digits = onehot( exclude(digits[idx_real]), 10 )
-                real_imgs, real_digits = imgs[idx_real], onehot( digits[idx_real], 10 )
+                real_imgs = imgs[idx_real]
+                real_digits = onehot( digits[idx_real], 10 )
                 fake_imgs = self.G.predict([imgs[idx_fake], random_target_digits])
 
                 # real image and correct digit
@@ -102,12 +97,9 @@ class CGAN():
                 # fake image and random digit
                 d_loss_fake = self.D.train_on_batch([fake_imgs, random_target_digits], fake)
                 # real image but wrong digit
-                d_loss_fake2 = self.D.train_on_batch([real_imgs, unmatch_digits], -valid)
+                d_loss_fake2 = self.D.train_on_batch([real_imgs, unmatch_digits], fake)
                 # d_loss_fake2 = self.D.train_on_batch([real_imgs, unmatch_digits], fake)
-                # train real again
-                d_loss_real = self.D.train_on_batch([real_imgs, real_digits], valid)
 
-            # d_loss = 0.5 * np.add(d_loss_real, d_loss_fake, d_loss_fake2)
 
             # tensorboard
             logs = {
@@ -136,7 +128,8 @@ class CGAN():
 
             # If at save interval => save generated image samples
             if sample_interval > 0 and itr % sample_interval == 0:
-                self.sample_imgs(itr, img_dir)
+                # self.sample_imgs(itr, img_dir)
+                plot_table(self.G, self.D, os.path.join(img_dir, f'{itr}.png'), save=True)
 
             if save_model_interval > 0 and itr % save_model_interval == 0:
                 if not os.path.isdir(model_dir):
@@ -180,18 +173,18 @@ class CGAN():
         plt.close()
 
 
+
 if __name__ == '__main__':
 
-    version_name = '18_inception_G2D1_model_100000iter'
-    # version_name = 'test'
+    version_name = 'test'
     model = CGAN()
     model.train(
-            iterations=100000,
+            iterations=20000,
             batch_size=128,
-            sample_interval=2500,
-            save_model_interval=5000,
+            sample_interval=1000,
+            save_model_interval=1000,
             train_D_iters=1,
-            train_G_iters=2,
+            train_G_iters=1,
             img_dir=f'./outputs/{version_name}/imgs',
             model_dir=f'./outputs/{version_name}/models')
 

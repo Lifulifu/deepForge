@@ -21,7 +21,7 @@ def plot_table(G, D, name, random=True):
     fig.set_size_inches(50, 50)
     for i in range(10): # for input img
         for j in range(10): # for target digit
-            gen_img = G.predict([np.expand_dims(input_imgs[i], axis=0), onehot(np.full((1, 1), j), 10)])
+            gen_img = G.predict([np.expand_dims(input_imgs[i], axis=0), onehot(np.full((1,), j), 10)])
             axs[i, j].imshow(gen_img[0, :, :, 0], cmap='gray')
             axs[i, j].axis('off')
     plt.show()
