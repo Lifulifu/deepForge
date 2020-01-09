@@ -23,7 +23,7 @@ def onehot(x, size, exclusive=False):
         exclusive_list = [random.choice( list(range(1, int(num.item()))) + list(range(int(num.item())+1,size)) ) for num in x ]
         result[np.arange(x.size(0)), exclusive_list] = 1
     result = torch.tensor(result)
-    return Variable(result, requires_grad=False)
+    return result
 
 def reverse_onehot(x):
     indice = x.nonzero()[:,1].view(-1)

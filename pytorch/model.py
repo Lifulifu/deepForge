@@ -35,15 +35,15 @@ class D(nn.Module):
     super(D, self).__init__()
     
     self.main = nn.Sequential(
-      nn.Conv2d(512, 1, kernel_size=(2, 2), stride=(1, 1), bias=False),
+      nn.Conv2d(512, 11, kernel_size=(2, 2), stride=(1, 1), bias=False),
       #n.LeakyReLU()
-      nn.Sigmoid()
+      nn.Softmax2d()
       
     )
     
 
   def forward(self, x):
-    output = self.main(x).view(-1, 1)
+    output = self.main(x).view(-1, 11)
     return output
 
 
@@ -118,7 +118,7 @@ class E(nn.Module):
         self.main = nn.Sequential(
             nn.Linear(in_features= 2048, out_features=100, bias=True),
             nn.LeakyReLU(),
-            nn.Linear(in_features=100, out_features=64, bias=True)
+            nn.Linear(in_features=100, out_features=64, bias=True),
         )
         
     def forward(self,x):
