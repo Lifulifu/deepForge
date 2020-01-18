@@ -8,15 +8,13 @@ from .util import load_mnist, onehot
 
 
 class Evaluator:
-    def __init__(self, gen_model, gen_mask_model, mnist_model='./outputs/D_digit.hdf5'):
+    def __init__(self, gen_model, gen_mask_model=None, mnist_model='./outputs/D_digit.hdf5'):
         self.G = load_model(gen_model)
-        self.G_mask = load_model(gen_mask_model)
         self.clf = load_model(mnist_model)
 
-    def add_imgs(self, imgs, digits, targets):
-        self.imgs, self.digits, self.targets = imgs, digits, targets
+    def run(self, imgs, targets):
+        self.imgs, self.targets = imgs, targets
         onehot_targets = onehot(np.array(targets), 10)
-        self.masks = self.G_mask.predict([imgs, onehot_targets])
         self.adds = self.G.predict([imgs, onehot_targets])
 
     def classify(self, imgs):
@@ -28,7 +26,11 @@ class Evaluator:
 
     def score(self):
         clf_res = self.classify(self.adds)
-        return np.mean(clf_res==self.targets)
+        return {
+            'samples': len(clf_res),
+            'hit_rate': np.mean(clf_res==self.targets),
+            'hit_amount': np.sum(clf_res==self.targets)
+        }
 
     def _plot_fig(self, img, mask, add, text=None):
         fig, axs = plt.subplots(1, 3, figsize=(4, 3))
@@ -51,49 +53,64 @@ class Evaluator:
 
 
 class Sampler:
-    def __init__(self, batch_size):
-        _, _, self.imgs, self.digits = load_mnist()
+    def __init__(self, data='test'):
+        if data == 'test':
+            _, _, self.imgs, self.digits = load_mnist()
+        else:
+            self.imgs, self.digits, _, _ = load_mnist()
         self.set = {i: [] for i in range(10)}
-        self.batch_size = batch_size
         for img, digit in zip(self.imgs, self.digits):
             self.set[digit].append(img)
-        # for k, v in self.set.items():
-        #     print(k, len(v))
 
-    def sample(self, idx=None):
-        n_batch = self.n_batch()
-        idx = np.random.randint(0, n_batch) if idx is None else idx
-        s = self.batch_size * idx
-        e = s + self.batch_size
-        return self.imgs[s:e], self.digits[s:e]
+    def sample(self, batch_size=10, idx=None):
+        idx = np.array( list(range(batch_size)) if idx is None else idx )
+        return self.imgs[idx], self.digits[idx]
 
-    def sample_by_key(self, key=None, idx=None):
-        key = np.random.randint(0, 10) if key is None else key
-        n_batch = self.n_batch(key)
-        idx = np.random.randint(0, n_batch) if idx is None else idx
-        s = self.batch_size * idx
-        e = s + self.batch_size
-        return self.set[key][s:e], [key]*self.batch_size
-
-    def n_batch(self, key=None):
-        if key is None:
-            n_samples = len(self.imgs)
-        else:
-            n_samples = len(self.set[key])
-        return ceil(n_samples/self.batch_size)
+    def sample_by_key(self, key, batch_size=10, idx=None):
+        idx = np.array( list(range(batch_size)) if idx is None else idx )
+        return self.set[key][idx], [key]*batch_size
 
 
 def acc(x, y):
     return np.sum(x==y, axis=1)
 
+def evaluate_model(G):
+    s = Sampler()
+    e = Evaluator(G)
+    hit_amount, hit_rate = np.zeros((10, 10)), np.zeros((10, 10))
+    for input_number in range(10):
+        for target_number in range(10):
+            imgs = np.array(s.set[input_number])
+            e.run(imgs, [target_number]*len(imgs))
+            score = e.score()
+            hit_amount[input_number, target_number] = score['hit_amount']
+            hit_rate[input_number, target_number] = score['hit_rate']
+    total_score = np.sum(hit_amount)
+    for i in range(10): # substract hits on the same number
+        total_score -= hit_amount[i, i]
+    return hit_amount, hit_rate, total_score
+
+def plot_matrix(m, save_dir=None):
+    fig, ax = plt.subplots()
+    ax.matshow(m, cmap=plt.cm.Blues)
+    ax.xaxis.set_ticks(np.arange(0, 10, 1))
+    ax.yaxis.set_ticks(np.arange(0, 10, 1))
+    for i in range(m.shape[0]):
+        for j in range(m.shape[1]):
+            color = 'white' if m[i, j] > .5 else 'black'
+            ax.text(j, i, f'{m[i,j]:.2f}'.lstrip('0'), va='center', ha='center', color=color)
+    if save_dir:
+        fig.savefig(save_dir)
+
+
 if '__main__' == __name__:
 
     batch_size = 20
-    c = Evaluator('./outputs/19_inception_G1D10_model_100000iter/models/G50000.hdf5',
-                  './outputs/19_inception_G1D10_model_100000iter/models/G_mask50000.hdf5')
+    e = Evaluator('./outputs/19_inception_G1D10_model_100000iter/models/G40000.hdf5')
     s = Sampler(batch_size)
     imgs, labels = s.sample_by_key(key=1)
 
     c.add_imgs(imgs, labels, [4]*len(imgs))
     res = c.score()
     print(res)
+

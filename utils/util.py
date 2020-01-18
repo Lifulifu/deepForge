@@ -19,7 +19,9 @@ def onehot(x, size):
     result[np.arange(x.size), x] = 1
     return result
 
-def plot_table(G, D, name, random=True, save=False):
+def plot_table(G, name, random=True, save=False):
+    if type(G) == str:
+        G = load_model(G)
     _, _, imgs, digits = load_mnist()
     input_imgs = [] # imgs of 0 ~ 9
     for i in range(10):
@@ -38,7 +40,7 @@ def plot_table(G, D, name, random=True, save=False):
             axs[i, j].imshow(gen_img[0, :, :, 0], cmap='gray')
             axs[i, j].axis('off')
     plt.show()
-    
+
     if save:
         fig.savefig(name, dpi=150)
 
