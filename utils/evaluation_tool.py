@@ -8,14 +8,16 @@ from .util import load_mnist, onehot
 
 
 class Evaluator:
-    def __init__(self, gen_model, gen_mask_model=None, mnist_model='./outputs/D_digit.hdf5'):
+    def __init__(self, gen_model, gen_mask_model, mnist_model='./outputs/D_digit.hdf5'):
         self.G = load_model(gen_model)
+        self.G_mask = load_model(gen_mask_model)
         self.clf = load_model(mnist_model)
 
     def run(self, imgs, targets):
         self.imgs, self.targets = imgs, targets
         onehot_targets = onehot(np.array(targets), 10)
         self.adds = self.G.predict([imgs, onehot_targets])
+        self.masks = self.G_mask.predict([imgs, onehot_targets])
 
     def classify(self, imgs):
         if imgs.ndim < 4:
@@ -68,7 +70,7 @@ class Sampler:
 
     def sample_by_key(self, key, batch_size=10, idx=None):
         idx = np.array( list(range(batch_size)) if idx is None else idx )
-        return self.set[key][idx], [key]*batch_size
+        return np.array(self.set[key])[idx], [key]*batch_size
 
 
 def acc(x, y):
